@@ -20,10 +20,14 @@ const app = express();
 // ===============================
 // ✅ CORS Configuration
 // ===============================
+
 app.use(cors({
-  origin: "*", 
-  methods: "GET,POST,PUT,DELETE",
-  allowedHeaders: "Content-Type,Authorization"
+  origin: [
+    "https://my-app-seven-sage-61.vercel.app",
+    "https://digital-guidance-api.onrender.com"
+  ],
+  methods: ["GET", "POST", "PUT", "DELETE"],
+  credentials: true
 }));
 
 app.use(express.json());
