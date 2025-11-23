@@ -20,8 +20,6 @@ const app = express();
 // ===============================
 // ✅ CORS Configuration
 // ===============================
-const cors = require("cors");
-
 app.use(cors({
   origin: "*", 
   methods: "GET,POST,PUT,DELETE",
