@@ -1,4 +1,6 @@
-// ✅ server.js
+// ===============================
+//  server.js (FINAL CLEAN VERSION)
+// ===============================
 
 const express = require("express");
 const cors = require("cors");
@@ -17,7 +19,7 @@ const pool = require("./db");
 const cloudinary = require("cloudinary").v2;
 
 // ===============================
-// ✅ Load variables + Configure Cloudinary FIRST
+//  Load .env + Configure Cloudinary
 // ===============================
 dotenv.config();
 
@@ -27,24 +29,29 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
+// ===============================
+//  Express App
+// ===============================
 const app = express();
 
 // ===============================
-// ✅ CORS
+//  CORS
 // ===============================
-app.use(cors({
-  origin: [
-    "https://my-app-seven-sage-61.vercel.app",
-    "https://digital-guidance-api.onrender.com"
-  ],
-  methods: ["GET", "POST", "PUT", "DELETE"],
-  credentials: true
-}));
+app.use(
+  cors({
+    origin: [
+      "https://my-app-seven-sage-61.vercel.app",
+      "https://digital-guidance-api.onrender.com",
+    ],
+    methods: ["GET", "POST", "PUT", "DELETE"],
+    credentials: true,
+  })
+);
 
 app.use(express.json());
 
 // ===============================
-// ✅ Create Upload Folders (videos/forms only)
+//  Ensure Upload Folders exist
 // ===============================
 const ensureDir = (dir) => {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
@@ -54,7 +61,13 @@ ensureDir("videos");
 ensureDir("forms");
 
 // ===============================
-// ✅ Multer Local Video Upload
+//  Serve Uploaded Videos & Forms (IMPORTANT)
+// ===============================
+app.use("/videos", express.static(path.join(__dirname, "videos")));
+app.use("/forms", express.static(path.join(__dirname, "forms")));
+
+// ===============================
+//  Multer Storage for Videos
 // ===============================
 const videoStorage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, "videos/"),
@@ -73,7 +86,7 @@ const uploadVideo = multer({
 });
 
 // ===============================
-// ✅ Multer for Forms
+//  Multer Storage for Forms
 // ===============================
 const formStorage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, "forms/"),
@@ -92,12 +105,7 @@ const uploadForm = multer({
 });
 
 // ===============================
-// ❌ REMOVED (No longer needed)
-// app.use("/carousel_images", express.static("carousel_images"));
-// ===============================
-
-// ===============================
-// ✅ Routes
+//  API Routes
 // ===============================
 app.use("/api/auth", authRoutes);
 app.use("/api/services", serviceRoutes);
@@ -106,7 +114,7 @@ app.use("/api/feedback", feedbackRoutes);
 app.use("/api/carousel", carouselRoutes);
 
 // ===============================
-// ✅ Video Upload
+//  Video Upload Endpoint
 // ===============================
 app.post("/api/services/upload", uploadVideo.single("video"), (req, res) => {
   if (!req.file) return res.status(400).json({ message: "No video uploaded" });
@@ -118,7 +126,7 @@ app.post("/api/services/upload", uploadVideo.single("video"), (req, res) => {
 });
 
 // ===============================
-// ✅ Form Upload
+//  Form Upload Endpoint
 // ===============================
 app.post("/api/services/upload/form", (req, res) => {
   uploadForm.single("formFile")(req, res, (err) => {
@@ -133,20 +141,20 @@ app.post("/api/services/upload/form", (req, res) => {
 });
 
 // ===============================
-// ✅ DB Test
+//  Test MySQL Connection
 // ===============================
-pool.getConnection()
-  .then(conn => {
+pool
+  .getConnection()
+  .then((conn) => {
     console.log("MySQL Connected!");
     conn.release();
   })
-  .catch(err => console.error("MySQL Connection Error:", err));
+  .catch((err) => console.error("MySQL Connection Error:", err));
 
 // ===============================
-// ✅ Start Server
+//  Start Server
 // ===============================
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, "0.0.0.0", () =>
   console.log(`API server running on port ${PORT}`)
 );
-
