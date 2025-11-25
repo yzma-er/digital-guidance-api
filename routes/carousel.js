@@ -76,4 +76,16 @@ router.delete("/:id", async (req, res) => {
   }
 });
 
+
+const carouselStorage = new CloudinaryStorage({
+  cloudinary,
+  params: {
+    folder: "carousel_images",
+    allowed_formats: ["jpg", "png", "jpeg"],
+  },
+});
+
+const uploadCarousel = multer({ storage: carouselStorage });
+
+
 module.exports = router;
