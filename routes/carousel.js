@@ -40,21 +40,23 @@ router.get("/", async (req, res) => {
 });
 
 // ✅ Upload a new carousel image
-router.post("/upload", upload.single("image"), async (req, res) => {
-  const { title, caption } = req.body;
-  const image = req.file ? req.file.filename : null;
-
-  if (!image) return res.status(400).json({ message: "No image uploaded" });
-
+router.post("/upload", uploadCarousel.single("image"), async (req, res) => {
   try {
-    await pool.query(
+    const imageUrl = req.file.path; // Cloudinary URL
+
+    const [result] = await pool.query(
       "INSERT INTO carousel (image, title, caption) VALUES (?, ?, ?)",
-      [image, title || null, caption || null]
+      [imageUrl, req.body.title, req.body.caption]
     );
-    res.json({ message: "✅ Image uploaded successfully!" });
-  } catch (err) {
-    console.error("❌ Error uploading image:", err);
-    res.status(500).json({ message: "Database error" });
+
+    res.json({
+      message: "Uploaded successfully",
+      id: result.insertId,
+      imageUrl,
+    });
+  } catch (error) {
+    console.error("Upload error:", error);
+    res.status(500).json({ message: "Upload failed" });
   }
 });
 
