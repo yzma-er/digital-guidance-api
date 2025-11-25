@@ -1,34 +1,36 @@
 const express = require("express");
 const router = express.Router();
-const multer = require("multer");
-const path = require("path");
 const pool = require("../db");
-const fs = require("fs");
 
-// ✅ Ensure upload folder exists
-const uploadDir = path.join(__dirname, "../carousel_images");
-if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+const cloudinary = require("cloudinary").v2;
+const { CloudinaryStorage } = require("multer-storage-cloudinary");
+const multer = require("multer");
 
-// ✅ Multer config for image uploads
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, uploadDir),
-  filename: (req, file, cb) => {
-    const uniqueName = Date.now() + path.extname(file.originalname);
-    cb(null, uniqueName);
+// ----------------------------
+// ✅ Cloudinary Config
+// ----------------------------
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
+
+// ----------------------------
+// ✅ Multer → Cloudinary Storage
+// ----------------------------
+const carouselStorage = new CloudinaryStorage({
+  cloudinary,
+  params: {
+    folder: "carousel_images",
+    allowed_formats: ["jpg", "png", "jpeg", "webp"],
   },
 });
 
-const upload = multer({
-  storage,
-  fileFilter: (req, file, cb) => {
-    const filetypes = /jpeg|jpg|png|gif|webp/;
-    const extname = filetypes.test(path.extname(file.originalname).toLowerCase());
-    if (extname) return cb(null, true);
-    cb("❌ Only image files are allowed!");
-  },
-});
+const uploadCarousel = multer({ storage: carouselStorage });
 
-// ✅ Get all carousel images
+// ----------------------------
+// ✅ GET ALL CAROUSEL IMAGES
+// ----------------------------
 router.get("/", async (req, res) => {
   try {
     const [rows] = await pool.query("SELECT * FROM carousel ORDER BY id DESC");
@@ -39,14 +41,21 @@ router.get("/", async (req, res) => {
   }
 });
 
-// ✅ Upload a new carousel image
+// ----------------------------
+// ✅ UPLOAD IMAGE TO CLOUDINARY
+// ----------------------------
 router.post("/upload", uploadCarousel.single("image"), async (req, res) => {
   try {
-    const imageUrl = req.file.path; // Cloudinary URL
+    if (!req.file || !req.file.path) {
+      return res.status(400).json({ message: "No image uploaded" });
+    }
+
+    const imageUrl = req.file.path;      // Cloudinary URL
+    const publicId = req.file.filename;  // Cloudinary public_id
 
     const [result] = await pool.query(
-      "INSERT INTO carousel (image, title, caption) VALUES (?, ?, ?)",
-      [imageUrl, req.body.title, req.body.caption]
+      "INSERT INTO carousel (image, public_id, title, caption) VALUES (?, ?, ?, ?)",
+      [imageUrl, publicId, req.body.title, req.body.caption]
     );
 
     res.json({
@@ -60,34 +69,28 @@ router.post("/upload", uploadCarousel.single("image"), async (req, res) => {
   }
 });
 
-// ✅ Delete a carousel image
+// ----------------------------
+// ✅ DELETE IMAGE (Cloudinary + DB)
+// ----------------------------
 router.delete("/:id", async (req, res) => {
   const { id } = req.params;
+
   try {
-    const [[image]] = await pool.query("SELECT image FROM carousel WHERE id = ?", [id]);
-    if (!image) return res.status(404).json({ message: "Image not found" });
+    const [[row]] = await pool.query("SELECT public_id FROM carousel WHERE id = ?", [id]);
 
-    const imagePath = path.join(uploadDir, image.image);
-    if (fs.existsSync(imagePath)) fs.unlinkSync(imagePath);
+    if (!row) return res.status(404).json({ message: "Image not found" });
 
+    // Delete from Cloudinary
+    await cloudinary.uploader.destroy(`carousel_images/${row.public_id}`);
+
+    // Delete from DB
     await pool.query("DELETE FROM carousel WHERE id = ?", [id]);
+
     res.json({ message: "🗑️ Image deleted successfully" });
   } catch (err) {
     console.error("❌ Error deleting image:", err);
-    res.status(500).json({ message: "Database error" });
+    res.status(500).json({ message: "Delete failed" });
   }
 });
-
-
-const carouselStorage = new CloudinaryStorage({
-  cloudinary,
-  params: {
-    folder: "carousel_images",
-    allowed_formats: ["jpg", "png", "jpeg"],
-  },
-});
-
-const uploadCarousel = multer({ storage: carouselStorage });
-
 
 module.exports = router;
