@@ -12,6 +12,8 @@ const adminRoutes = require("./routes/admin");
 const feedbackRoutes = require("./routes/feedback");
 const pool = require("./db");
 const carouselRoutes = require("./routes/carousel")
+const cloudinary = require("cloudinary").v2;
+const { CloudinaryStorage } = require("multer-storage-cloudinary");
 
 
 dotenv.config();
@@ -153,4 +155,10 @@ pool
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`✅ API server running on http://192.168.1.7:${PORT}`);
+});
+
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
 });
