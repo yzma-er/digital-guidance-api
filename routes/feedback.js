@@ -64,26 +64,27 @@ router.delete("/:id", async (req, res) => {
 });
 
 // Step ratings per service (GET /api/feedback/step-ratings/:serviceId)
-router.get("/step-ratings/:serviceId", async (req, res) => {
-  const { serviceId } = req.params;
+router.get("/step-ratings/:serviceName", async (req, res) => {
+  const { serviceName } = req.params;
 
-  try {
-    const [rows] = await pool.query(
-      `SELECT step_number,
-              ROUND(AVG(rating), 1) AS avg_rating,
-              COUNT(*) AS count
-       FROM feedback
-       WHERE service_id = ?
-       GROUP BY step_number
-       ORDER BY step_number ASC`,
-      [serviceId]
-    );
+  try {
+    const [rows] = await pool.query(
+      `SELECT step_number,
+              ROUND(AVG(rating), 1) AS avg_rating,
+              COUNT(*) AS count
+       FROM feedback
+       WHERE TRIM(LOWER(service_name)) = TRIM(LOWER(?))
+       GROUP BY step_number
+       ORDER BY step_number ASC`,
+      [serviceName]
+    );
 
-    res.json(rows);
-  } catch (err) {
-    console.error("Error fetching step ratings:", err);
-    res.status(500).json({ message: "Database error" });
-  }
+    res.json(rows);
+  } catch (err) {
+    console.error("Error fetching step ratings:", err);
+    res.status(500).json({ message: "Database error" });
+  }
 });
+
 
 module.exports = router;
