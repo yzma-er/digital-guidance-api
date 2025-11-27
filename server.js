@@ -1,5 +1,5 @@
 // ===============================
-//  server.js (FINAL CLEAN VERSION)
+//  server.js (UPDATED FOR CLOUDINARY)
 // ===============================
 
 const express = require("express");
@@ -51,42 +51,21 @@ app.use(
 app.use(express.json());
 
 // ===============================
-//  Ensure Upload Folders exist
+//  Ensure Upload Folders exist (for forms only now)
 // ===============================
 const ensureDir = (dir) => {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 };
 
-ensureDir("videos");
-ensureDir("forms");
+ensureDir("forms"); // Only forms need local storage now
 
 // ===============================
-//  Serve Uploaded Videos & Forms (IMPORTANT)
+//  Serve Form Files only (videos go to Cloudinary)
 // ===============================
-app.use("/videos", express.static(path.join(__dirname, "videos")));
 app.use("/forms", express.static(path.join(__dirname, "forms")));
 
 // ===============================
-//  Multer Storage for Videos
-// ===============================
-const videoStorage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, "videos/"),
-  filename: (req, file, cb) =>
-    cb(null, Date.now() + path.extname(file.originalname)),
-});
-
-const uploadVideo = multer({
-  storage: videoStorage,
-  fileFilter: (req, file, cb) => {
-    const allowed = /mp4|mov|avi|mkv/;
-    const ext = path.extname(file.originalname).toLowerCase().slice(1);
-    if (allowed.test(ext)) cb(null, true);
-    else cb(new Error("❌ Only video files allowed"));
-  },
-});
-
-// ===============================
-//  Multer Storage for Forms
+//  Multer Storage for Forms (keep local for forms)
 // ===============================
 const formStorage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, "forms/"),
@@ -105,6 +84,43 @@ const uploadForm = multer({
 });
 
 // ===============================
+//  Multer Memory Storage for Videos (for Cloudinary)
+// ===============================
+const memoryStorage = multer.memoryStorage();
+const uploadVideo = multer({ 
+  storage: memoryStorage,
+  limits: {
+    fileSize: 50 * 1024 * 1024, // 50MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    const allowed = /mp4|mov|avi|mkv/;
+    const ext = path.extname(file.originalname).toLowerCase().slice(1);
+    if (allowed.test(ext)) cb(null, true);
+    else cb(new Error("❌ Only video files allowed"));
+  },
+});
+
+// ===============================
+//  Cloudinary Upload Function
+// ===============================
+const uploadToCloudinary = (fileBuffer, folder = "videos") => {
+  return new Promise((resolve, reject) => {
+    const uploadStream = cloudinary.uploader.upload_stream(
+      {
+        resource_type: "video",
+        folder: folder,
+        chunk_size: 6000000, // 6MB chunks
+      },
+      (error, result) => {
+        if (error) reject(error);
+        else resolve(result);
+      }
+    );
+    uploadStream.end(fileBuffer);
+  });
+};
+
+// ===============================
 //  API Routes
 // ===============================
 app.use("/api/auth", authRoutes);
@@ -114,19 +130,47 @@ app.use("/api/feedback", feedbackRoutes);
 app.use("/api/carousel", carouselRoutes);
 
 // ===============================
-//  Video Upload Endpoint
+//  Main Video Upload to Cloudinary (UPDATED)
 // ===============================
-app.post("/api/services/upload", uploadVideo.single("video"), (req, res) => {
-  if (!req.file) return res.status(400).json({ message: "No video uploaded" });
+app.post("/api/services/upload", uploadVideo.single("video"), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ message: "No video uploaded" });
 
-  res.json({
-    message: "Video uploaded successfully",
-    filename: req.file.filename,
-  });
+    const result = await uploadToCloudinary(req.file.buffer, "main-videos");
+    
+    res.json({
+      message: "Video uploaded to Cloudinary successfully",
+      filename: result.public_id,
+      url: result.secure_url
+    });
+  } catch (error) {
+    console.error("❌ Cloudinary upload error:", error);
+    res.status(500).json({ message: "Failed to upload video to Cloudinary" });
+  }
 });
 
 // ===============================
-//  Form Upload Endpoint
+//  Step Video Upload to Cloudinary (NEW)
+// ===============================
+app.post("/api/services/upload/step-video", uploadVideo.single("video"), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ message: "No step video uploaded" });
+
+    const result = await uploadToCloudinary(req.file.buffer, "step-videos");
+    
+    res.json({
+      message: "Step video uploaded to Cloudinary successfully",
+      filename: result.public_id,
+      url: result.secure_url
+    });
+  } catch (error) {
+    console.error("❌ Cloudinary step video upload error:", error);
+    res.status(500).json({ message: "Failed to upload step video to Cloudinary" });
+  }
+});
+
+// ===============================
+//  Form Upload (keep local)
 // ===============================
 app.post("/api/services/upload/form", (req, res) => {
   uploadForm.single("formFile")(req, res, (err) => {
