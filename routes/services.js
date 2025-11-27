@@ -64,41 +64,29 @@ router.post("/", async (req, res) => {
   }
 });
 
-// ✅ Update existing service
-router.put("/:id", upload.single("video"), async (req, res) => {
+
+// ✅ Update existing service (UPDATED FOR CLOUDINARY)
+
+router.put("/:id", async (req, res) => {  // Remove upload.single("video") since we're not using local upload
   const { id } = req.params;
-  let { name, description, description2, content } = req.body;
-  const newVideoFilename = req.file ? req.file.filename : null;
+  const { name, description, description2, content } = req.body;
 
   try {
-    // Get old video filename
+    // Get old service data
     const [rows] = await pool.query("SELECT video FROM services WHERE service_id = ?", [id]);
     if (rows.length === 0) return res.status(404).json({ message: "Service not found" });
 
-    const oldVideoFilename = rows[0].video;
-
     // Ensure JSON string for content
-    if (typeof content !== "string") content = JSON.stringify(content || []);
+    const contentString = typeof content === 'string' ? content : JSON.stringify(content || []);
 
-    // Choose correct video
-    const videoToSave = newVideoFilename || oldVideoFilename || null;
-
-    // 🟢 Update query includes description2
+    // 🟢 Update query
     const [result] = await pool.query(
-      "UPDATE services SET name = ?, description = ?, description2 = ?, video = ?, content = ? WHERE service_id = ?",
-      [name, description, description2, videoToSave, content, id]
+      "UPDATE services SET name = ?, description = ?, description2 = ?, content = ? WHERE service_id = ?",
+      [name, description, description2, contentString, id]
     );
 
     if (result.affectedRows === 0)
       return res.status(404).json({ message: "Service not found" });
-
-    // Delete old video if new one uploaded
-    if (newVideoFilename && oldVideoFilename) {
-      const oldPath = path.join(__dirname, "../videos", oldVideoFilename);
-      fs.unlink(oldPath, (err) => {
-        if (err) console.warn(`⚠️ Failed to delete old video: ${err.message}`);
-      });
-    }
 
     res.json({ message: "✅ Service updated successfully" });
   } catch (err) {
