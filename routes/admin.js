@@ -136,7 +136,39 @@ router.put("/users/:id/password", async (req, res) => {
   }
 });
 
+// ✅ CREATE ADMIN ACCOUNT (ADD THIS ROUTE)
+router.post("/create-admin", async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    
+    // Validate input
+    if (!email || !password) {
+      return res.status(400).json({ message: 'Email and password are required' });
+    }
+    
+    if (password.length < 6) {
+      return res.status(400).json({ message: 'Password must be at least 6 characters long' });
+    }
 
+    // Check if user already exists
+    const [existing] = await pool.query('SELECT * FROM users WHERE email = ?', [email]);
+    if (existing.length > 0) {
+      return res.status(400).json({ message: 'User already exists with this email' });
+    }
+    
+    // Hash password and create admin user
+    const hashedPassword = await bcrypt.hash(password, 10);
+    await pool.query(
+      'INSERT INTO users (email, password, role) VALUES (?, ?, ?)',
+      [email, hashedPassword, 'admin']
+    );
+    
+    res.json({ message: 'Admin account created successfully' });
+  } catch (error) {
+    console.error('❌ Error creating admin:', error);
+    res.status(500).json({ message: 'Failed to create admin account' });
+  }
+});
 
 // ✅ FEEDBACK MANAGEMENT
 router.get("/feedback", async (req, res) => {
@@ -187,5 +219,7 @@ router.delete("/feedback/:id", async (req, res) => {
     res.status(500).json({ message: "Database error" });
   }
 });
+
+
 
 module.exports = router;
