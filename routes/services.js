@@ -67,19 +67,14 @@ router.post("/", async (req, res) => {
 
 // ✅ Update existing service (UPDATED FOR CLOUDINARY)
 
-router.put("/:id", async (req, res) => {  // Remove upload.single("video") since we're not using local upload
+router.put("/:id", async (req, res) => {
   const { id } = req.params;
   const { name, description, description2, content } = req.body;
 
   try {
-    // Get old service data
-    const [rows] = await pool.query("SELECT video FROM services WHERE service_id = ?", [id]);
-    if (rows.length === 0) return res.status(404).json({ message: "Service not found" });
-
     // Ensure JSON string for content
     const contentString = typeof content === 'string' ? content : JSON.stringify(content || []);
 
-    // 🟢 Update query
     const [result] = await pool.query(
       "UPDATE services SET name = ?, description = ?, description2 = ?, content = ? WHERE service_id = ?",
       [name, description, description2, contentString, id]
@@ -94,7 +89,6 @@ router.put("/:id", async (req, res) => {  // Remove upload.single("video") since
     res.status(500).json({ message: "Failed to update service" });
   }
 });
-
 // ✅ Upload video
 router.post("/video", upload.single("video"), (req, res) => {
   if (!req.file) return res.status(400).json({ message: "No video uploaded" });
