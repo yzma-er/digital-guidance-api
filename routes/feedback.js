@@ -3,11 +3,11 @@ const express = require("express");
 const router = express.Router();
 const pool = require("../db");
 
-// Submit feedback (POST /api/feedback)
+// Submit feedback (POST /api/feedback) - UPDATED for replaceable ratings
 router.post("/", async (req, res) => {
-  const { service_id, service_name, step_number, rating, comment } = req.body;
+  const { service_id, service_name, step_number, rating, comment, user_id } = req.body;
 
-  if (!service_id || !rating) {
+  if (!service_id || !rating || !step_number) {
     return res.status(400).json({ message: "Missing required fields" });
   }
 
@@ -26,23 +26,46 @@ router.post("/", async (req, res) => {
       }
     }
 
+    // Check if user already rated this step
+    if (user_id) {
+      const [existing] = await pool.query(
+        "SELECT feedback_id FROM feedback WHERE service_id = ? AND step_number = ? AND user_id = ?",
+        [service_id, step_number, user_id]
+      );
+
+      if (existing.length > 0) {
+        // Update existing rating
+        await pool.query(
+          "UPDATE feedback SET rating = ?, comment = ?, created_at = NOW() WHERE feedback_id = ?",
+          [rating, comment || null, existing[0].feedback_id]
+        );
+        return res.json({ message: "Feedback updated successfully!", updated: true });
+      }
+    }
+
+    // Insert new rating
     await pool.query(
-      "INSERT INTO feedback (service_id, service_name, step_number, rating, comment, created_at) VALUES (?, ?, ?, ?, ?, NOW())",
-      [service_id, finalServiceName, step_number || null, rating, comment || null]
+      "INSERT INTO feedback (service_id, service_name, step_number, rating, comment, user_id, created_at) VALUES (?, ?, ?, ?, ?, ?, NOW())",
+      [service_id, finalServiceName, step_number, rating, comment || null, user_id || null]
     );
 
-    res.json({ message: "Feedback saved successfully!" });
+    res.json({ message: "Feedback saved successfully!", updated: false });
   } catch (err) {
     console.error("Error saving feedback:", err);
     res.status(500).json({ message: "Database error" });
   }
 });
 
-// Fetch all feedback (GET /api/feedback)
+// Fetch all feedback with user info (GET /api/feedback) - UPDATED
 router.get("/", async (req, res) => {
   try {
     const [rows] = await pool.query(
-      "SELECT feedback_id, service_id, service_name, step_number, rating, comment, created_at FROM feedback ORDER BY created_at DESC"
+      `SELECT f.feedback_id, f.service_id, f.service_name, f.step_number, 
+              f.rating, f.comment, f.created_at, f.user_id,
+              u.email as user_email
+       FROM feedback f
+       LEFT JOIN users u ON f.user_id = u.user_id
+       ORDER BY f.created_at DESC`
     );
     res.json(rows);
   } catch (err) {
