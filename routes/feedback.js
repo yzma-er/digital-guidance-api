@@ -5,70 +5,101 @@ const pool = require("../db");
 
 // Submit feedback (POST /api/feedback)
 router.post("/", async (req, res) => {
-  const { service_id, service_name, step_number, rating, comment } = req.body;
+  const { service_id, service_name, step_number, rating, comment } = req.body;
 
-  if (!service_id || !rating) {
-    return res.status(400).json({ message: "Missing required fields" });
-  }
+  if (!service_id || !rating) {
+    return res.status(400).json({ message: "Missing required fields" });
+  }
 
-  try {
-    let finalServiceName = service_name;
+  try {
+    let finalServiceName = service_name;
 
-    if (!finalServiceName) {
-      const [rows] = await pool.query(
-        "SELECT name FROM services WHERE service_id = ?",
-        [service_id]
-      );
-      if (rows.length > 0) {
-        finalServiceName = rows[0].name;
-      } else {
-        return res.status(404).json({ message: "Service not found" });
-      }
-    }
+    if (!finalServiceName) {
+      const [rows] = await pool.query(
+        "SELECT name FROM services WHERE service_id = ?",
+        [service_id]
+      );
+      if (rows.length > 0) {
+        finalServiceName = rows[0].name;
+      } else {
+        return res.status(404).json({ message: "Service not found" });
+      }
+    }
 
-    await pool.query(
-      "INSERT INTO feedback (service_id, service_name, step_number, rating, comment, created_at) VALUES (?, ?, ?, ?, ?, NOW())",
-      [service_id, finalServiceName, step_number || null, rating, comment || null]
-    );
+    await pool.query(
+      "INSERT INTO feedback (service_id, service_name, step_number, rating, comment, created_at) VALUES (?, ?, ?, ?, ?, NOW())",
+      [service_id, finalServiceName, step_number || null, rating, comment || null]
+    );
 
-    res.json({ message: "Feedback saved successfully!" });
-  } catch (err) {
-    console.error("Error saving feedback:", err);
-    res.status(500).json({ message: "Database error" });
-  }
+    res.json({ message: "Feedback saved successfully!" });
+  } catch (err) {
+    console.error("Error saving feedback:", err);
+    res.status(500).json({ message: "Database error" });
+  }
 });
 
 // Fetch all feedback (GET /api/feedback)
 router.get("/", async (req, res) => {
-  try {
-    const [rows] = await pool.query(
-      "SELECT feedback_id, service_id, service_name, step_number, rating, comment, created_at FROM feedback ORDER BY created_at DESC"
-    );
-    res.json(rows);
-  } catch (err) {
-    console.error("Error fetching feedback:", err);
-    res.status(500).json({ message: "Database error" });
-  }
+  try {
+    const [rows] = await pool.query(
+      "SELECT feedback_id, service_id, service_name, step_number, rating, comment, created_at FROM feedback ORDER BY created_at DESC"
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error("Error fetching feedback:", err);
+    res.status(500).json({ message: "Database error" });
+  }
 });
 
 // Delete (DELETE /api/feedback/:id)
 router.delete("/:id", async (req, res) => {
-  const { id } = req.params;
-  try {
-    await pool.query("DELETE FROM feedback WHERE feedback_id = ?", [id]);
-    res.json({ message: "Feedback deleted successfully!" });
-  } catch (err) {
-    console.error("Error deleting feedback:", err);
-    res.status(500).json({ message: "Database error" });
-  }
+  const { id } = req.params;
+  try {
+    await pool.query("DELETE FROM feedback WHERE feedback_id = ?", [id]);
+    res.json({ message: "Feedback deleted successfully!" });
+  } catch (err) {
+    console.error("Error deleting feedback:", err);
+    res.status(500).json({ message: "Database error" });
+  }
 });
 
-// Step ratings per service (GET /api/feedback/step-ratings/:serviceId)
+// Step ratings per service with custom names (GET /api/feedback/step-ratings/:serviceName)
 router.get("/step-ratings/:serviceName", async (req, res) => {
   const { serviceName } = req.params;
 
   try {
-    const [rows] = await pool.query(
+    // First, get the service to extract custom step names from content
+    const [serviceRows] = await pool.query(
+      "SELECT service_id, content FROM services WHERE TRIM(LOWER(name)) = TRIM(LOWER(?))",
+      [serviceName]
+    );
+
+    if (serviceRows.length === 0) {
+      return res.status(404).json({ message: "Service not found" });
+    }
+
+    const service = serviceRows[0];
+    let customStepNames = {};
+
+    // Parse the content JSON to extract custom names
+    try {
+      if (service.content) {
+        const content = JSON.parse(service.content);
+        if (Array.isArray(content)) {
+          content.forEach((step, index) => {
+            const stepNumber = index + 1;
+            if (step.customName) {
+              customStepNames[stepNumber] = step.customName;
+            }
+          });
+        }
+      }
+    } catch (parseError) {
+      console.warn("Error parsing service content:", parseError);
+    }
+
+    // Get step ratings from feedback
+    const [ratingRows] = await pool.query(
       `SELECT step_number,
               ROUND(AVG(rating), 1) AS avg_rating,
               COUNT(*) AS count
@@ -79,12 +110,19 @@ router.get("/step-ratings/:serviceName", async (req, res) => {
       [serviceName]
     );
 
-    res.json(rows);
+    // Combine ratings with custom names
+    const stepRatingsWithNames = ratingRows.map(row => ({
+      step_number: row.step_number,
+      avg_rating: row.avg_rating,
+      count: row.count,
+      custom_name: customStepNames[row.step_number] || null
+    }));
+
+    res.json(stepRatingsWithNames);
   } catch (err) {
     console.error("Error fetching step ratings:", err);
     res.status(500).json({ message: "Database error" });
   }
 });
-
 
 module.exports = router;
