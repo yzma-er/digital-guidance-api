@@ -1,4 +1,4 @@
-// src/routes/feedback.js
+// routes/feedback.js - UPDATED to include user emails
 const express = require("express");
 const router = express.Router();
 const pool = require("../db");
@@ -56,13 +56,20 @@ router.post("/", async (req, res) => {
   }
 });
 
-// Fetch all feedback with user info (GET /api/feedback) - UPDATED
+// Fetch all feedback with user emails (GET /api/feedback) - UPDATED
 router.get("/", async (req, res) => {
   try {
     const [rows] = await pool.query(
-      `SELECT f.feedback_id, f.service_id, f.service_name, f.step_number, 
-              f.rating, f.comment, f.created_at, f.user_id,
-              u.email as user_email
+      `SELECT 
+        f.feedback_id, 
+        f.service_id, 
+        f.service_name, 
+        f.step_number, 
+        f.rating, 
+        f.comment, 
+        f.created_at, 
+        f.user_id,
+        u.email as user_email
        FROM feedback f
        LEFT JOIN users u ON f.user_id = u.user_id
        ORDER BY f.created_at DESC`
@@ -121,15 +128,18 @@ router.get("/step-ratings/:serviceName", async (req, res) => {
       console.warn("Error parsing service content:", parseError);
     }
 
-    // Get step ratings from feedback
+    // Get step ratings from feedback with user emails
     const [ratingRows] = await pool.query(
-      `SELECT step_number,
-              ROUND(AVG(rating), 1) AS avg_rating,
-              COUNT(*) AS count
-       FROM feedback
-       WHERE TRIM(LOWER(service_name)) = TRIM(LOWER(?))
-       GROUP BY step_number
-       ORDER BY step_number ASC`,
+      `SELECT 
+        f.step_number,
+        ROUND(AVG(f.rating), 1) AS avg_rating,
+        COUNT(*) AS count,
+        GROUP_CONCAT(DISTINCT u.email) as sample_users
+       FROM feedback f
+       LEFT JOIN users u ON f.user_id = u.user_id
+       WHERE TRIM(LOWER(f.service_name)) = TRIM(LOWER(?))
+       GROUP BY f.step_number
+       ORDER BY f.step_number ASC`,
       [serviceName]
     );
 
@@ -138,7 +148,8 @@ router.get("/step-ratings/:serviceName", async (req, res) => {
       step_number: row.step_number,
       avg_rating: row.avg_rating,
       count: row.count,
-      custom_name: customStepNames[row.step_number] || null
+      custom_name: customStepNames[row.step_number] || null,
+      sample_users: row.sample_users ? row.sample_users.split(',').slice(0, 3) : [] // Show first 3 users
     }));
 
     res.json(stepRatingsWithNames);
