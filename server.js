@@ -105,7 +105,7 @@ const uploadForm = multer({
     else cb(new Error("❌ Only PDF/DOC/DOCX allowed"));
   },
   limits: {
-    fileSize: 10 * 1024 * 1024, // 10MB limit for forms
+    fileSize: 5 * 1024 * 1024, // 5MB limit for forms
   }
 });
 
