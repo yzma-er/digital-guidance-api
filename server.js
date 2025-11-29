@@ -1,5 +1,5 @@
 // ===============================
-//  server.js (UPDATED WITH CLOUDINARY FOR FORMS)
+//  server.js (UPDATED WITH CLOUDINARY PATTERN)
 // ===============================
 
 const express = require("express");
@@ -52,6 +52,19 @@ app.use(
 app.use(express.json());
 
 // ===============================
+//  Ensure Forms Folder exists
+// ===============================
+const ensureDir = (dir) => {
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+};
+ensureDir("forms");
+
+// ===============================
+//  Serve Form Files (forms stay local)
+// ===============================
+app.use("/forms", express.static(path.join(__dirname, "forms")));
+
+// ===============================
 //  Cloudinary Storage for Videos (MAIN VIDEOS)
 // ===============================
 const mainVideoStorage = new CloudinaryStorage({
@@ -78,16 +91,21 @@ const stepVideoStorage = new CloudinaryStorage({
 });
 
 // ===============================
-//  Cloudinary Storage for Forms (NEW)
+//  Multer for Forms (keep local)
 // ===============================
-const formStorage = new CloudinaryStorage({
-  cloudinary,
-  params: {
-    folder: "forms",
-    resource_type: "auto",
-    allowed_formats: ["pdf", "doc", "docx"],
-    // You can add transformation parameters if needed
-    // transformation: [{ width: 500, height: 500, crop: 'limit' }]
+const formStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, "forms/"),
+  filename: (req, file, cb) =>
+    cb(null, Date.now() + path.extname(file.originalname)),
+});
+
+const uploadForm = multer({
+  storage: formStorage,
+  fileFilter: (req, file, cb) => {
+    const allowed = /pdf|doc|docx/;
+    const ext = path.extname(file.originalname).toLowerCase().slice(1);
+    if (allowed.test(ext)) cb(null, true);
+    else cb(new Error("❌ Only PDF/DOC/DOCX allowed"));
   },
 });
 
@@ -96,18 +114,6 @@ const formStorage = new CloudinaryStorage({
 // ===============================
 const uploadMainVideo = multer({ storage: mainVideoStorage });
 const uploadStepVideo = multer({ storage: stepVideoStorage });
-const uploadForm = multer({ 
-  storage: formStorage,
-  fileFilter: (req, file, cb) => {
-    const allowed = /pdf|doc|docx/;
-    const ext = path.extname(file.originalname).toLowerCase().slice(1);
-    if (allowed.test(ext)) cb(null, true);
-    else cb(new Error("❌ Only PDF/DOC/DOCX allowed"));
-  },
-  limits: {
-    fileSize: 5 * 1024 * 1024, // 5MB limit for forms
-  }
-});
 
 // ===============================
 //  API Routes
@@ -155,101 +161,18 @@ app.post("/api/services/upload/step-video", uploadStepVideo.single("video"), (re
 });
 
 // ===============================
-//  Form Upload to Cloudinary (WORKING VERSION)
+//  Form Upload (keep local)
 // ===============================
-
-// Simple memory storage
-const uploadForm = multer({
-  storage: multer.memoryStorage(),
-  limits: {
-    fileSize: 10 * 1024 * 1024 // 10MB
-  }
-});
-
-app.post("/api/services/upload/form", uploadForm.single("formFile"), async (req, res) => {
-  console.log("🔄 Form upload endpoint hit");
-  
-  try {
-    // Check if file exists
-    if (!req.file) {
-      console.log("❌ No file received");
-      return res.status(400).json({ 
-        success: false,
-        message: "No file uploaded" 
-      });
-    }
-
-    console.log("📁 File info:", {
-      name: req.file.originalname,
-      type: req.file.mimetype,
-      size: req.file.size
-    });
-
-    // Check Cloudinary config
-    if (!process.env.CLOUDINARY_CLOUD_NAME || 
-        !process.env.CLOUDINARY_API_KEY || 
-        !process.env.CLOUDINARY_API_SECRET) {
-      console.error("❌ Cloudinary env vars missing");
-      throw new Error("Cloudinary configuration incomplete");
-    }
-
-    console.log("✅ Cloudinary config found");
-
-    // Convert buffer to base64
-    const base64File = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
-
-    console.log("📤 Uploading to Cloudinary...");
-
-    // Upload to Cloudinary
-    const result = await cloudinary.uploader.upload(base64File, {
-      resource_type: "auto",
-      folder: "forms",
-      public_id: `form_${Date.now()}_${req.file.originalname.replace(/\.[^/.]+$/, "")}`,
-      overwrite: false
-    });
-
-    console.log("✅ Cloudinary upload successful:", result.secure_url);
+app.post("/api/services/upload/form", (req, res) => {
+  uploadForm.single("formFile")(req, res, (err) => {
+    if (err) return res.status(400).json({ message: err.message });
+    if (!req.file) return res.status(400).json({ message: "No form uploaded" });
 
     res.json({
-      success: true,
-      message: "Form uploaded to Cloudinary successfully",
-      filename: result.public_id,
-      url: result.secure_url,
-      public_id: result.public_id
+      message: "Form uploaded successfully",
+      filename: req.file.filename,
     });
-
-  } catch (error) {
-    console.error("💥 SERVER ERROR:", error);
-    
-    // Send proper JSON error response
-    res.status(500).json({ 
-      success: false,
-      message: "Server error during upload",
-      error: error.message
-    });
-  }
-});
-
-// ===============================
-//  Delete Form from Cloudinary (OPTIONAL - for cleanup)
-// ===============================
-app.delete("/api/services/upload/form/:public_id", async (req, res) => {
-  try {
-    const { public_id } = req.params;
-    
-    const result = await cloudinary.uploader.destroy(public_id, {
-      resource_type: 'raw' // Use 'raw' for documents
-    });
-    
-    if (result.result === 'ok') {
-      res.json({ message: "Form deleted successfully from Cloudinary" });
-    } else {
-      res.status(404).json({ message: "Form not found in Cloudinary" });
-    }
-  } catch (error) {
-    console.error("❌ Cloudinary form deletion error:", error);
-    res.status(500).json({ message: "Failed to delete form from Cloudinary" });
-  }
+  });
 });
 
 // ===============================
