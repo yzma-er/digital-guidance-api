@@ -155,43 +155,77 @@ app.post("/api/services/upload/step-video", uploadStepVideo.single("video"), (re
 });
 
 // ===============================
-//  Form Upload to Cloudinary (WITH BETTER ERROR HANDLING)
+//  Form Upload to Cloudinary (WORKING VERSION)
 // ===============================
-app.post("/api/services/upload/form", uploadForm.single("formFile"), (req, res) => {
+
+// Simple memory storage
+const uploadForm = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 10 * 1024 * 1024 // 10MB
+  }
+});
+
+app.post("/api/services/upload/form", uploadForm.single("formFile"), async (req, res) => {
+  console.log("🔄 Form upload endpoint hit");
+  
   try {
-    console.log("📁 Form upload request received");
-    console.log("📦 Request file:", req.file);
-    console.log("🔑 Cloudinary config:", {
-      cloud_name: process.env.CLOUDINARY_CLOUD_NAME ? "Set" : "Missing",
-      api_key: process.env.CLOUDINARY_API_KEY ? "Set" : "Missing",
-    });
-
+    // Check if file exists
     if (!req.file) {
-      console.log("❌ No file in request");
-      return res.status(400).json({ message: "No form uploaded" });
+      console.log("❌ No file received");
+      return res.status(400).json({ 
+        success: false,
+        message: "No file uploaded" 
+      });
     }
 
-    // Check if Cloudinary upload was successful
-    if (!req.file.path) {
-      console.log("❌ Cloudinary upload failed - no path returned");
-      return res.status(500).json({ message: "Cloudinary upload failed" });
-    }
-
-    console.log("✅ Form uploaded successfully to:", req.file.path);
-    
-    res.json({
-      message: "Form uploaded to Cloudinary successfully",
-      filename: req.file.filename, // Cloudinary public_id
-      url: req.file.path, // Cloudinary secure_url
-      public_id: req.file.filename
+    console.log("📁 File info:", {
+      name: req.file.originalname,
+      type: req.file.mimetype,
+      size: req.file.size
     });
+
+    // Check Cloudinary config
+    if (!process.env.CLOUDINARY_CLOUD_NAME || 
+        !process.env.CLOUDINARY_API_KEY || 
+        !process.env.CLOUDINARY_API_SECRET) {
+      console.error("❌ Cloudinary env vars missing");
+      throw new Error("Cloudinary configuration incomplete");
+    }
+
+    console.log("✅ Cloudinary config found");
+
+    // Convert buffer to base64
+    const base64File = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
+
+    console.log("📤 Uploading to Cloudinary...");
+
+    // Upload to Cloudinary
+    const result = await cloudinary.uploader.upload(base64File, {
+      resource_type: "auto",
+      folder: "forms",
+      public_id: `form_${Date.now()}_${req.file.originalname.replace(/\.[^/.]+$/, "")}`,
+      overwrite: false
+    });
+
+    console.log("✅ Cloudinary upload successful:", result.secure_url);
+
+    res.json({
+      success: true,
+      message: "Form uploaded to Cloudinary successfully",
+      filename: result.public_id,
+      url: result.secure_url,
+      public_id: result.public_id
+    });
+
   } catch (error) {
-    console.error("❌ Cloudinary form upload error:", error);
-    console.error("❌ Error details:", error.message);
-    console.error("❌ Error stack:", error.stack);
+    console.error("💥 SERVER ERROR:", error);
+    
+    // Send proper JSON error response
     res.status(500).json({ 
-      message: "Failed to upload form to Cloudinary",
-      error: error.message 
+      success: false,
+      message: "Server error during upload",
+      error: error.message
     });
   }
 });
