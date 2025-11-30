@@ -1,5 +1,5 @@
 // ===============================
-//  server.js (UPDATED WITH CLOUDINARY PATTERN)
+//  server.js (UPDATED WITH CLOUDINARY FOR FORMS)
 // ===============================
 
 const express = require("express");
@@ -52,19 +52,6 @@ app.use(
 app.use(express.json());
 
 // ===============================
-//  Ensure Forms Folder exists
-// ===============================
-const ensureDir = (dir) => {
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-};
-ensureDir("forms");
-
-// ===============================
-//  Serve Form Files (forms stay local)
-// ===============================
-app.use("/forms", express.static(path.join(__dirname, "forms")));
-
-// ===============================
 //  Cloudinary Storage for Videos (MAIN VIDEOS)
 // ===============================
 const mainVideoStorage = new CloudinaryStorage({
@@ -91,21 +78,14 @@ const stepVideoStorage = new CloudinaryStorage({
 });
 
 // ===============================
-//  Multer for Forms (keep local)
+//  Cloudinary Storage for Forms (NEW - FORMS TO CLOUDINARY)
 // ===============================
-const formStorage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, "forms/"),
-  filename: (req, file, cb) =>
-    cb(null, Date.now() + path.extname(file.originalname)),
-});
-
-const uploadForm = multer({
-  storage: formStorage,
-  fileFilter: (req, file, cb) => {
-    const allowed = /pdf|doc|docx/;
-    const ext = path.extname(file.originalname).toLowerCase().slice(1);
-    if (allowed.test(ext)) cb(null, true);
-    else cb(new Error("❌ Only PDF/DOC/DOCX allowed"));
+const formCloudinaryStorage = new CloudinaryStorage({
+  cloudinary,
+  params: {
+    folder: "forms",
+    resource_type: "auto", // This will handle PDF, DOC, DOCX
+    allowed_formats: ["pdf", "doc", "docx"],
   },
 });
 
@@ -114,6 +94,7 @@ const uploadForm = multer({
 // ===============================
 const uploadMainVideo = multer({ storage: mainVideoStorage });
 const uploadStepVideo = multer({ storage: stepVideoStorage });
+const uploadFormToCloudinary = multer({ storage: formCloudinaryStorage }); // NEW
 
 // ===============================
 //  API Routes
@@ -161,18 +142,22 @@ app.post("/api/services/upload/step-video", uploadStepVideo.single("video"), (re
 });
 
 // ===============================
-//  Form Upload (keep local)
+//  Form Upload to Cloudinary (UPDATED)
 // ===============================
-app.post("/api/services/upload/form", (req, res) => {
-  uploadForm.single("formFile")(req, res, (err) => {
-    if (err) return res.status(400).json({ message: err.message });
+app.post("/api/services/upload/form", uploadFormToCloudinary.single("formFile"), (req, res) => {
+  try {
     if (!req.file) return res.status(400).json({ message: "No form uploaded" });
 
     res.json({
-      message: "Form uploaded successfully",
-      filename: req.file.filename,
+      message: "Form uploaded to Cloudinary successfully",
+      filename: req.file.filename, // Cloudinary public_id
+      url: req.file.path, // Cloudinary secure_url
+      originalName: req.file.originalname // NEW: Keep original filename
     });
-  });
+  } catch (error) {
+    console.error("❌ Cloudinary form upload error:", error);
+    res.status(500).json({ message: "Failed to upload form to Cloudinary" });
+  }
 });
 
 // ===============================
