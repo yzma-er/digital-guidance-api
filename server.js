@@ -78,41 +78,32 @@ const stepVideoStorage = new CloudinaryStorage({
 });
 
 // ===============================
-//  Cloudinary Storage for Forms (FIXED)
+//  Cloudinary Storage for Forms (FIXED - SIMPLIFIED)
 // ===============================
 const formCloudinaryStorage = new CloudinaryStorage({
   cloudinary,
   params: {
     folder: "forms",
-    resource_type: "auto", // Use "auto" to detect file type
-    allowed_formats: ["pdf", "doc", "docx"],
-    // Remove any problematic parameters that might cause 500 errors
+    resource_type: "raw", // Use "raw" for documents instead of "auto"
+    // Remove allowed_formats to let Cloudinary handle all document types
   },
 });
 
 // ===============================
 //  Multer Upload Instances
 // ===============================
-const uploadMainVideo = multer({ 
-  storage: mainVideoStorage,
-  limits: { fileSize: 100 * 1024 * 1024 } // 100MB limit
-});
-
-const uploadStepVideo = multer({ 
-  storage: stepVideoStorage,
-  limits: { fileSize: 100 * 1024 * 1024 } // 100MB limit
-});
-
 const uploadFormToCloudinary = multer({ 
   storage: formCloudinaryStorage,
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit for forms
   fileFilter: (req, file, cb) => {
-    // Simple file filter for forms
-    const allowedMimes = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
-    if (allowedMimes.includes(file.mimetype)) {
+    // Simple file extension check
+    const fileExt = path.extname(file.originalname).toLowerCase();
+    const allowedExt = ['.pdf', '.doc', '.docx'];
+    
+    if (allowedExt.includes(fileExt)) {
       cb(null, true);
     } else {
-      cb(new Error('Invalid file type. Only PDF, DOC, and DOCX files are allowed.'));
+      cb(new Error('Only PDF, DOC, and DOCX files are allowed.'));
     }
   }
 });
