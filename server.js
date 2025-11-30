@@ -1,5 +1,5 @@
 // ===============================
-//  server.js (UPDATED WITH CLOUDINARY FOR FORMS)
+//  server.js (FIXED CLOUDINARY FORM UPLOAD)
 // ===============================
 
 const express = require("express");
@@ -78,23 +78,44 @@ const stepVideoStorage = new CloudinaryStorage({
 });
 
 // ===============================
-//  Cloudinary Storage for Forms (NEW - FORMS TO CLOUDINARY)
+//  Cloudinary Storage for Forms (FIXED)
 // ===============================
 const formCloudinaryStorage = new CloudinaryStorage({
   cloudinary,
   params: {
     folder: "forms",
-    resource_type: "auto", // This will handle PDF, DOC, DOCX
+    resource_type: "auto", // Use "auto" to detect file type
     allowed_formats: ["pdf", "doc", "docx"],
+    // Remove any problematic parameters that might cause 500 errors
   },
 });
 
 // ===============================
 //  Multer Upload Instances
 // ===============================
-const uploadMainVideo = multer({ storage: mainVideoStorage });
-const uploadStepVideo = multer({ storage: stepVideoStorage });
-const uploadFormToCloudinary = multer({ storage: formCloudinaryStorage }); // NEW
+const uploadMainVideo = multer({ 
+  storage: mainVideoStorage,
+  limits: { fileSize: 100 * 1024 * 1024 } // 100MB limit
+});
+
+const uploadStepVideo = multer({ 
+  storage: stepVideoStorage,
+  limits: { fileSize: 100 * 1024 * 1024 } // 100MB limit
+});
+
+const uploadFormToCloudinary = multer({ 
+  storage: formCloudinaryStorage,
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit for forms
+  fileFilter: (req, file, cb) => {
+    // Simple file filter for forms
+    const allowedMimes = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
+    if (allowedMimes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Invalid file type. Only PDF, DOC, and DOCX files are allowed.'));
+    }
+  }
+});
 
 // ===============================
 //  API Routes
@@ -114,8 +135,8 @@ app.post("/api/services/upload", uploadMainVideo.single("video"), (req, res) => 
 
     res.json({
       message: "Main video uploaded to Cloudinary successfully",
-      filename: req.file.filename, // Cloudinary public_id
-      url: req.file.path // Cloudinary secure_url
+      filename: req.file.filename,
+      url: req.file.path
     });
   } catch (error) {
     console.error("❌ Cloudinary upload error:", error);
@@ -132,8 +153,8 @@ app.post("/api/services/upload/step-video", uploadStepVideo.single("video"), (re
 
     res.json({
       message: "Step video uploaded to Cloudinary successfully",
-      filename: req.file.filename, // Cloudinary public_id
-      url: req.file.path // Cloudinary secure_url
+      filename: req.file.filename,
+      url: req.file.path
     });
   } catch (error) {
     console.error("❌ Cloudinary step video upload error:", error);
@@ -142,22 +163,47 @@ app.post("/api/services/upload/step-video", uploadStepVideo.single("video"), (re
 });
 
 // ===============================
-//  Form Upload to Cloudinary (UPDATED)
+//  Form Upload to Cloudinary (FIXED)
 // ===============================
 app.post("/api/services/upload/form", uploadFormToCloudinary.single("formFile"), (req, res) => {
   try {
-    if (!req.file) return res.status(400).json({ message: "No form uploaded" });
+    if (!req.file) {
+      return res.status(400).json({ message: "No form file uploaded" });
+    }
+
+    console.log("✅ Form upload successful:", {
+      originalname: req.file.originalname,
+      filename: req.file.filename,
+      path: req.file.path,
+      size: req.file.size
+    });
 
     res.json({
       message: "Form uploaded to Cloudinary successfully",
-      filename: req.file.filename, // Cloudinary public_id
-      url: req.file.path, // Cloudinary secure_url
-      originalName: req.file.originalname // NEW: Keep original filename
+      filename: req.file.filename,
+      url: req.file.path,
+      originalName: req.file.originalname
     });
   } catch (error) {
-    console.error("❌ Cloudinary form upload error:", error);
-    res.status(500).json({ message: "Failed to upload form to Cloudinary" });
+    console.error("❌ Form upload error:", error);
+    res.status(500).json({ 
+      message: "Failed to upload form to Cloudinary",
+      error: error.message 
+    });
   }
+});
+
+// ===============================
+//  Error handling middleware
+// ===============================
+app.use((error, req, res, next) => {
+  if (error instanceof multer.MulterError) {
+    if (error.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({ message: 'File too large' });
+    }
+  }
+  console.error("❌ Server error:", error);
+  res.status(500).json({ message: 'Something went wrong!' });
 });
 
 // ===============================
