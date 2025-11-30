@@ -19,7 +19,7 @@ router.get("/services", async (req, res) => {
     const [rows] = await pool.query("SELECT * FROM services");
     res.json(rows);
   } catch (err) {
-    console.error(err);
+    console.error("❌ Error fetching services:", err);
     res.status(500).json({ message: "Failed to fetch services" });
   }
 });
@@ -27,11 +27,16 @@ router.get("/services", async (req, res) => {
 // ✅ Add a new service
 router.post("/services", async (req, res) => {
   const { name } = req.body;
+  
+  if (!name) {
+    return res.status(400).json({ message: "Service name is required" });
+  }
+
   try {
     await pool.query("INSERT INTO services (name) VALUES (?)", [name]);
     res.json({ message: "Service added successfully" });
   } catch (err) {
-    console.error(err);
+    console.error("❌ Error adding service:", err);
     res.status(500).json({ message: "Failed to add service" });
   }
 });
@@ -39,8 +44,18 @@ router.post("/services", async (req, res) => {
 // ✅ Delete a service
 router.delete("/services/:id", async (req, res) => {
   const { id } = req.params;
+  
+  if (!id) {
+    return res.status(400).json({ message: "Service ID is required" });
+  }
+
   try {
-    await pool.query("DELETE FROM services WHERE service_id = ?", [id]);
+    const [result] = await pool.query("DELETE FROM services WHERE service_id = ?", [id]);
+    
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: "Service not found" });
+    }
+    
     res.json({ success: true, message: "Service deleted successfully" });
   } catch (err) {
     console.error("❌ Error deleting service:", err);
@@ -53,22 +68,26 @@ router.put("/services/:id", async (req, res) => {
   const { id } = req.params;
   const { name, description, content } = req.body;
 
+  if (!id) {
+    return res.status(400).json({ message: "Service ID is required" });
+  }
+
   try {
-    await pool.query(
+    const [result] = await pool.query(
       "UPDATE services SET name = ?, description = ?, content = ? WHERE service_id = ?",
       [name, description, content, id]
     );
+    
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: "Service not found" });
+    }
+    
     res.json({ message: "Service updated successfully" });
   } catch (err) {
     console.error("❌ Error updating service:", err);
     res.status(500).json({ message: "Failed to update service" });
   }
 });
-
-
-
-
-
 
 /* ======================
    USERS MANAGEMENT
@@ -78,34 +97,65 @@ router.put("/services/:id", async (req, res) => {
 router.get("/users", async (req, res) => {
   try {
     const [rows] = await pool.query(
-      "SELECT user_id, email, role, created_at FROM users"
+      "SELECT user_id, email, role, created_at FROM users ORDER BY created_at DESC"
     );
     res.json(rows);
   } catch (err) {
-    console.error("❌ Error fetching users:", err.message);
-    res.status(500).json({ error: err.message });
+    console.error("❌ Error fetching users:", err);
+    res.status(500).json({ message: "Failed to fetch users" });
   }
 });
 
 // ✅ Delete a user
 router.delete("/users/:id", async (req, res) => {
   const { id } = req.params;
+  
+  if (!id) {
+    return res.status(400).json({ message: "User ID is required" });
+  }
+
+  // Prevent admin from deleting themselves
+  if (parseInt(id) === req.user.user_id) {
+    return res.status(400).json({ message: "Cannot delete your own account" });
+  }
+
   try {
-    await pool.query("DELETE FROM users WHERE user_id = ?", [id]);
-    res.json({ success: true });
+    const [result] = await pool.query("DELETE FROM users WHERE user_id = ?", [id]);
+    
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: "User not found" });
+    }
+    
+    res.json({ success: true, message: "User deleted successfully" });
   } catch (err) {
     console.error("❌ Error deleting user:", err);
-    res.status(500).json({ error: "Database error" });
+    res.status(500).json({ message: "Database error" });
   }
 });
 
 // ✅ Update user role
 router.put("/users/:id/role", async (req, res) => {
   const { id } = req.params;
-  const { role } = req.body; // expected: "admin" or "user"
+  const { role } = req.body;
+
+  if (!id || !role) {
+    return res.status(400).json({ message: "User ID and role are required" });
+  }
+
+  if (!['admin', 'user'].includes(role)) {
+    return res.status(400).json({ message: "Role must be 'admin' or 'user'" });
+  }
 
   try {
-    await pool.query("UPDATE users SET role = ? WHERE user_id = ?", [role, id]);
+    const [result] = await pool.query(
+      "UPDATE users SET role = ? WHERE user_id = ?", 
+      [role, id]
+    );
+    
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: "User not found" });
+    }
+    
     res.json({ message: "User role updated successfully" });
   } catch (err) {
     console.error("❌ Error updating role:", err);
@@ -118,16 +168,24 @@ router.put("/users/:id/password", async (req, res) => {
   const { id } = req.params;
   const { newPassword } = req.body;
 
-  if (!newPassword) {
-    return res.status(400).json({ message: "Password is required" });
+  if (!id || !newPassword) {
+    return res.status(400).json({ message: "User ID and password are required" });
+  }
+
+  if (newPassword.length < 6) {
+    return res.status(400).json({ message: "Password must be at least 6 characters long" });
   }
 
   try {
     const hashedPassword = await bcrypt.hash(newPassword, 10);
-    await pool.query("UPDATE users SET password = ? WHERE user_id = ?", [
-      hashedPassword,
-      id,
-    ]);
+    const [result] = await pool.query(
+      "UPDATE users SET password = ? WHERE user_id = ?", 
+      [hashedPassword, id]
+    );
+    
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: "User not found" });
+    }
 
     res.json({ message: "Password updated successfully" });
   } catch (err) {
@@ -136,12 +194,11 @@ router.put("/users/:id/password", async (req, res) => {
   }
 });
 
-// ✅ CREATE ADMIN ACCOUNT (ADD THIS ROUTE)
+// ✅ CREATE ADMIN ACCOUNT
 router.post("/create-admin", async (req, res) => {
   try {
     const { email, password } = req.body;
     
-    // Validate input
     if (!email || !password) {
       return res.status(400).json({ message: 'Email and password are required' });
     }
@@ -151,19 +208,26 @@ router.post("/create-admin", async (req, res) => {
     }
 
     // Check if user already exists
-    const [existing] = await pool.query('SELECT * FROM users WHERE email = ?', [email]);
+    const [existing] = await pool.query(
+      'SELECT * FROM users WHERE email = ?', 
+      [email]
+    );
+    
     if (existing.length > 0) {
       return res.status(400).json({ message: 'User already exists with this email' });
     }
     
     // Hash password and create admin user
     const hashedPassword = await bcrypt.hash(password, 10);
-    await pool.query(
+    const [result] = await pool.query(
       'INSERT INTO users (email, password, role) VALUES (?, ?, ?)',
       [email, hashedPassword, 'admin']
     );
     
-    res.json({ message: 'Admin account created successfully' });
+    res.json({ 
+      message: 'Admin account created successfully',
+      userId: result.insertId 
+    });
   } catch (error) {
     console.error('❌ Error creating admin:', error);
     res.status(500).json({ message: 'Failed to create admin account' });
@@ -173,7 +237,6 @@ router.post("/create-admin", async (req, res) => {
 // ✅ FEEDBACK MANAGEMENT
 router.get("/feedback", async (req, res) => {
   try {
-    // Fetch feedback entries with service name + step number
     const [feedbackRows] = await pool.query(`
       SELECT 
         f.feedback_id,
@@ -187,7 +250,6 @@ router.get("/feedback", async (req, res) => {
       ORDER BY f.created_at DESC
     `);
 
-    // Fetch average rating summary per service
     const [summaryRows] = await pool.query(`
       SELECT 
         s.name AS service_name,
@@ -211,15 +273,26 @@ router.get("/feedback", async (req, res) => {
 // ✅ Delete feedback
 router.delete("/feedback/:id", async (req, res) => {
   const { id } = req.params;
+  
+  if (!id) {
+    return res.status(400).json({ message: "Feedback ID is required" });
+  }
+
   try {
-    await pool.query("DELETE FROM feedback WHERE feedback_id = ?", [id]);
+    const [result] = await pool.query(
+      "DELETE FROM feedback WHERE feedback_id = ?", 
+      [id]
+    );
+    
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: "Feedback not found" });
+    }
+    
     res.json({ success: true, message: "Feedback deleted successfully" });
   } catch (err) {
     console.error("❌ Error deleting feedback:", err);
     res.status(500).json({ message: "Database error" });
   }
 });
-
-
 
 module.exports = router;
