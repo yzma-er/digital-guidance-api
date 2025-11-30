@@ -1,5 +1,5 @@
 // ===============================
-//  server.js (FIXED CLOUDINARY FORM UPLOAD)
+//  server.js (FIXED - COMPLETE VERSION)
 // ===============================
 
 const express = require("express");
@@ -60,7 +60,6 @@ const mainVideoStorage = new CloudinaryStorage({
     folder: "main_videos",
     resource_type: "video",
     allowed_formats: ["mp4", "mov", "avi", "mkv"],
-    chunk_size: 6000000, // 6MB chunks
   },
 });
 
@@ -73,32 +72,31 @@ const stepVideoStorage = new CloudinaryStorage({
     folder: "step_videos",
     resource_type: "video",
     allowed_formats: ["mp4", "mov", "avi", "mkv"],
-    chunk_size: 6000000,
   },
 });
 
 // ===============================
-//  Cloudinary Storage for Forms (FIXED - SIMPLIFIED)
+//  Multer Upload Instances for Videos
 // ===============================
-const formCloudinaryStorage = new CloudinaryStorage({
-  cloudinary,
-  params: {
-    folder: "forms",
-    resource_type: "raw", // Use "raw" for documents instead of "auto"
-    // Remove allowed_formats to let Cloudinary handle all document types
-  },
+const uploadMainVideo = multer({ 
+  storage: mainVideoStorage,
+  limits: { fileSize: 100 * 1024 * 1024 }
+});
+
+const uploadStepVideo = multer({ 
+  storage: stepVideoStorage,
+  limits: { fileSize: 100 * 1024 * 1024 }
 });
 
 // ===============================
-//  Multer Upload Instances
+//  SIMPLE Multer for Forms (Memory Storage)
 // ===============================
-const uploadFormToCloudinary = multer({ 
-  storage: formCloudinaryStorage,
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit for forms
+const uploadForm = multer({
+  storage: multer.memoryStorage(), // Store in memory first
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
   fileFilter: (req, file, cb) => {
-    // Simple file extension check
-    const fileExt = path.extname(file.originalname).toLowerCase();
     const allowedExt = ['.pdf', '.doc', '.docx'];
+    const fileExt = path.extname(file.originalname).toLowerCase();
     
     if (allowedExt.includes(fileExt)) {
       cb(null, true);
@@ -154,31 +152,64 @@ app.post("/api/services/upload/step-video", uploadStepVideo.single("video"), (re
 });
 
 // ===============================
-//  Form Upload to Cloudinary (FIXED)
+//  Form Upload to Cloudinary (FIXED - SIMPLE APPROACH)
 // ===============================
-app.post("/api/services/upload/form", uploadFormToCloudinary.single("formFile"), (req, res) => {
+app.post("/api/services/upload/form", uploadForm.single("formFile"), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ message: "No form file uploaded" });
     }
 
-    console.log("✅ Form upload successful:", {
+    console.log("📤 Uploading form to Cloudinary:", {
       originalname: req.file.originalname,
-      filename: req.file.filename,
-      path: req.file.path,
+      mimetype: req.file.mimetype,
       size: req.file.size
     });
 
+    // Convert buffer to base64 for Cloudinary
+    const fileBuffer = req.file.buffer;
+    const fileBase64 = `data:${req.file.mimetype};base64,${fileBuffer.toString('base64')}`;
+
+    // Upload to Cloudinary with explicit raw resource type
+    const result = await cloudinary.uploader.upload(fileBase64, {
+      folder: "forms",
+      resource_type: "raw", // ✅ FIXED: Use "raw" for documents
+      public_id: `form_${Date.now()}_${path.parse(req.file.originalname).name}`,
+      // Remove any format restrictions
+    });
+
+    console.log("✅ Cloudinary upload successful:", result.secure_url);
+
     res.json({
-      message: "Form uploaded to Cloudinary successfully",
-      filename: req.file.filename,
-      url: req.file.path,
+      message: "Form uploaded successfully",
+      filename: result.public_id,
+      url: result.secure_url,
       originalName: req.file.originalname
     });
   } catch (error) {
-    console.error("❌ Form upload error:", error);
+    console.error("❌ Cloudinary upload error:", error);
     res.status(500).json({ 
-      message: "Failed to upload form to Cloudinary",
+      message: "Failed to upload form",
+      error: error.message 
+    });
+  }
+});
+
+// ===============================
+//  Test Cloudinary Connection
+// ===============================
+app.get("/api/test-cloudinary", async (req, res) => {
+  try {
+    const result = await cloudinary.api.ping();
+    console.log("✅ Cloudinary test successful");
+    res.json({ 
+      message: "Cloudinary is working",
+      status: result 
+    });
+  } catch (error) {
+    console.error("❌ Cloudinary test failed:", error);
+    res.status(500).json({ 
+      message: "Cloudinary configuration error",
       error: error.message 
     });
   }
