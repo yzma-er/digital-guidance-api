@@ -87,4 +87,23 @@ router.delete("/:id", async (req, res) => {
   }
 });
 
+// Update display_order for multiple images
+router.put('/reorder', async (req, res) => {
+  try {
+    const { images } = req.body;
+    
+    for (const img of images) {
+      await pool.execute(
+        'UPDATE carousel SET display_order = ? WHERE id = ?',
+        [img.display_order, img.id]
+      );
+    }
+    
+    res.json({ message: 'Carousel order updated successfully' });
+  } catch (error) {
+    console.error('Error updating carousel order:', error);
+    res.status(500).json({ message: 'Failed to update carousel order' });
+  }
+});
+
 module.exports = router;
