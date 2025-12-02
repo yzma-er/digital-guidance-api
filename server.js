@@ -195,6 +195,44 @@ app.post("/api/services/upload/form", uploadForm.single("formFile"), async (req,
   }
 });
 
+
+// ===============================
+//  Cloudinary Storage for Photos
+// ===============================
+const photoStorage = new CloudinaryStorage({
+  cloudinary,
+  params: {
+    folder: "service-photos",
+    resource_type: "image",
+    allowed_formats: ["jpg", "jpeg", "png", "gif", "webp"],
+  },
+});
+
+const uploadPhoto = multer({ 
+  storage: photoStorage,
+  limits: { fileSize: 5 * 1024 * 1024 } // 5MB
+});
+
+// ===============================
+//  Photo Upload Endpoint
+// ===============================
+app.post("/api/services/upload/photo", uploadPhoto.single("image"), (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: "No image uploaded" });
+    }
+
+    res.json({
+      message: "Photo uploaded to Cloudinary successfully",
+      url: req.file.path,
+      public_id: req.file.filename
+    });
+  } catch (error) {
+    console.error("❌ Cloudinary photo upload error:", error);
+    res.status(500).json({ message: "Failed to upload photo to Cloudinary" });
+  }
+});
+
 // ===============================
 //  Test Cloudinary Connection
 // ===============================
