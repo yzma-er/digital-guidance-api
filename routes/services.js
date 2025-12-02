@@ -20,8 +20,7 @@ const upload = multer({ storage });
 router.get("/", async (req, res) => {
   try {
     const [rows] = await pool.query(
-      "SELECT service_id, name, description, description2, video FROM services ORDER BY name ASC"
-
+      "SELECT service_id, name, description, photo, description2, video FROM services ORDER BY name ASC"
     );
     res.json(rows);
   } catch (err) {
@@ -49,13 +48,13 @@ router.get("/:id", async (req, res) => {
 
 // ✅ Add new service
 router.post("/", async (req, res) => {
-  const { name, description, description2, video, content } = req.body;
+  const { name, description, photo, description2, video, content } = req.body;
   if (!name) return res.status(400).json({ message: "Service name is required" });
 
   try {
     await pool.query(
-      "INSERT INTO services (name, description, description2, video, content) VALUES (?, ?, ?, ?, ?)",
-      [name, description || "", description2 || "", video || "", content || ""]
+      "INSERT INTO services (name, description, photo, description2, video, content) VALUES (?, ?, ?, ?, ?, ?)",
+      [name, description || "", photo || "", description2 || "", video || "", content || ""]
     );
     res.json({ message: "✅ Service added successfully" });
   } catch (err) {
@@ -64,20 +63,18 @@ router.post("/", async (req, res) => {
   }
 });
 
-
-// ✅ Update existing service (UPDATED FOR CLOUDINARY)
-
+// ✅ Update existing service (UPDATED TO INCLUDE PHOTO)
 router.put("/:id", async (req, res) => {
   const { id } = req.params;
-  const { name, description, description2, content } = req.body;
+  const { name, description, photo, description2, content } = req.body;
 
   try {
     // Ensure JSON string for content
     const contentString = typeof content === 'string' ? content : JSON.stringify(content || []);
 
     const [result] = await pool.query(
-      "UPDATE services SET name = ?, description = ?, description2 = ?, content = ? WHERE service_id = ?",
-      [name, description, description2, contentString, id]
+      "UPDATE services SET name = ?, description = ?, photo = ?, description2 = ?, content = ? WHERE service_id = ?",
+      [name, description, photo || "", description2, contentString, id]
     );
 
     if (result.affectedRows === 0)
@@ -89,6 +86,7 @@ router.put("/:id", async (req, res) => {
     res.status(500).json({ message: "Failed to update service" });
   }
 });
+
 // ✅ Upload video
 router.post("/video", upload.single("video"), (req, res) => {
   if (!req.file) return res.status(400).json({ message: "No video uploaded" });
@@ -109,7 +107,7 @@ router.delete("/:id", async (req, res) => {
   }
 });
 
-// ✅ Submit feedback
+// ✅ Submit feedback (you might want to move this to a separate feedback routes file)
 router.post("/feedback", async (req, res) => {
   const { service_id, rating, comment } = req.body;
 
@@ -128,6 +126,5 @@ router.post("/feedback", async (req, res) => {
     res.status(500).json({ message: "Failed to submit feedback." });
   }
 });
-
 
 module.exports = router;
