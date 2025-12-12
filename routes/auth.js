@@ -8,38 +8,38 @@ const nodemailer = require('nodemailer');
 
 const router = express.Router();
 
-// SendGrid Transporter Setup
+// Brevo Transporter Setup
 const transporter = nodemailer.createTransport({
-  host: process.env.EMAIL_HOST || 'smtp.sendgrid.net',
+  host: process.env.EMAIL_HOST || 'smtp-relay.brevo.com',
   port: process.env.EMAIL_PORT || 587,
-  secure: false,
+  secure: false, // true for 465, false for other ports
   auth: {
-    user: process.env.EMAIL_USER || 'apikey',
+    user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASS
   }
 });
 
-// Verify transporter connection on startup
-transporter.verify(function(error, success) {
+// Test connection on startup
+transporter.verify((error, success) => {
   if (error) {
-    console.error('Email transporter error:', error);
+    console.error('❌ Email server connection failed:', error.message);
   } else {
     console.log('✅ Email server is ready to send messages');
   }
 });
 
-// In-memory OTP store
+// OTP storage (use Redis in production)
 const otpStore = new Map();
 
+// Generate 6-digit OTP
 function generateOTP() {
   return crypto.randomInt(100000, 999999).toString();
 }
 
+// Send OTP email via Brevo
 async function sendOTPEmail(email, otp) {
-  const fromEmail = process.env.SENDGRID_FROM_EMAIL || process.env.EMAIL_USER;
-  
   const mailOptions = {
-    from: `"Digital Guidance" <${fromEmail}>`,
+    from: process.env.EMAIL_FROM || '"Digital Guidance" <verify@digitalguidance.com>',
     to: email,
     subject: 'Verify Your Email - Digital Guidance',
     html: `
@@ -48,97 +48,170 @@ async function sendOTPEmail(email, otp) {
       <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Email Verification</title>
         <style>
-          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; }
-          .container { padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px; margin: 20px; }
-          .header { text-align: center; margin-bottom: 30px; }
-          .otp-code { 
-            background: #f8f9fa; 
-            padding: 20px; 
-            text-align: center; 
-            font-size: 32px; 
-            font-weight: bold; 
-            letter-spacing: 5px; 
+          body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            background-color: #f9fafb;
+          }
+          .container {
+            background: white;
+            border-radius: 12px;
+            padding: 40px;
+            margin: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+          }
+          .header {
+            text-align: center;
+            margin-bottom: 40px;
+          }
+          .logo {
             color: #2563eb;
-            border-radius: 6px;
+            font-size: 28px;
+            font-weight: bold;
+            margin-bottom: 10px;
+          }
+          .tagline {
+            color: #6b7280;
+            font-size: 16px;
+          }
+          .otp-container {
+            background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+            border-radius: 10px;
+            padding: 30px;
+            text-align: center;
             margin: 30px 0;
-            font-family: monospace;
+            border: 2px dashed #93c5fd;
           }
-          .footer { 
-            margin-top: 30px; 
-            padding-top: 20px; 
-            border-top: 1px solid #e0e0e0; 
-            font-size: 12px; 
-            color: #666; 
+          .otp-code {
+            font-size: 42px;
+            font-weight: bold;
+            letter-spacing: 10px;
+            color: #1d4ed8;
+            font-family: 'Courier New', monospace;
+            margin: 20px 0;
           }
-          .warning { 
-            background: #fff3cd; 
-            border: 1px solid #ffecb5; 
-            padding: 10px; 
-            border-radius: 4px; 
-            margin: 15px 0; 
+          .timer {
+            color: #dc2626;
             font-size: 14px;
+            font-weight: 500;
+            margin-top: 15px;
+          }
+          .instructions {
+            background: #fef3c7;
+            border-left: 4px solid #f59e0b;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 25px 0;
+          }
+          .footer {
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 1px solid #e5e7eb;
+            text-align: center;
+            color: #6b7280;
+            font-size: 13px;
+          }
+          .button {
+            display: inline-block;
+            background: #2563eb;
+            color: white;
+            padding: 12px 30px;
+            text-decoration: none;
+            border-radius: 6px;
+            margin: 20px 0;
           }
         </style>
       </head>
       <body>
         <div class="container">
           <div class="header">
-            <h2 style="color: #2563eb; margin-bottom: 0;">Digital Guidance</h2>
-            <p style="color: #666; margin-top: 5px;">Email Verification</p>
+            <div class="logo">Digital Guidance</div>
+            <div class="tagline">Your trusted learning companion</div>
           </div>
+          
+          <h2 style="color: #1f2937; margin-bottom: 20px;">Email Verification Required</h2>
           
           <p>Hello,</p>
-          <p>Thank you for signing up with Digital Guidance!</p>
-          <p>Your verification code is:</p>
+          <p>You're almost ready to start your journey with Digital Guidance! To complete your registration, please use the verification code below:</p>
           
-          <div class="otp-code">${otp}</div>
-          
-          <div class="warning">
-            <strong>⚠️ Important:</strong> This code will expire in 10 minutes.
-            Do not share this code with anyone.
+          <div class="otp-container">
+            <div style="color: #4b5563; margin-bottom: 10px;">Your verification code:</div>
+            <div class="otp-code">${otp}</div>
+            <div class="timer">⏰ Expires in 10 minutes</div>
           </div>
           
-          <p>If you didn't request this verification, please ignore this email.</p>
+          <div class="instructions">
+            <strong>📝 Important:</strong>
+            <ul style="margin: 10px 0; padding-left: 20px;">
+              <li>Enter this code in the verification page</li>
+              <li>Do not share this code with anyone</li>
+              <li>If you didn't request this, please ignore this email</li>
+            </ul>
+          </div>
+          
+          <p style="margin-top: 30px;">Need help? Contact our support team or reply to this email.</p>
           
           <div class="footer">
-            <p>This is an automated message from <strong>Digital Guidance</strong>.</p>
             <p>© ${new Date().getFullYear()} Digital Guidance. All rights reserved.</p>
+            <p>This is an automated message, please do not reply directly to this email.</p>
           </div>
         </div>
       </body>
       </html>
     `,
-    // Optional: Plain text version for email clients that don't support HTML
-    text: `Your Digital Guidance verification code is: ${otp}\n\nThis code expires in 10 minutes.\n\nIf you didn't request this, please ignore this email.\n\nThank you,\nDigital Guidance Team`
+    // Text version for email clients that don't support HTML
+    text: `
+Digital Guidance - Email Verification
+======================================
+
+Your verification code is: ${otp}
+
+Enter this code in the verification page to complete your registration.
+
+This code will expire in 10 minutes.
+
+If you didn't request this verification, please ignore this email.
+
+Need help? Contact our support team.
+
+© ${new Date().getFullYear()} Digital Guidance. All rights reserved.
+    `
   };
 
   try {
     const info = await transporter.sendMail(mailOptions);
-    console.log('📧 Email sent:', info.messageId);
-    return true;
+    console.log(`📧 OTP email sent to ${email}:`, info.messageId);
+    return { success: true, messageId: info.messageId };
   } catch (error) {
-    console.error('❌ Email sending failed:', error);
+    console.error(`❌ Failed to send OTP email to ${email}:`, error.message);
     throw error;
   }
 }
 
-// Rate limiting storage
+// Rate limiting
 const rateLimits = new Map();
 
-function checkRateLimit(email, type = 'otp_request') {
+function checkRateLimit(email, type = 'otp') {
   const now = Date.now();
   const key = `${email}:${type}`;
-  const limit = rateLimits.get(key) || { count: 0, resetTime: now + 3600000 }; // 1 hour
+  const limit = rateLimits.get(key) || { count: 0, resetTime: now + 3600000 };
   
   if (now > limit.resetTime) {
     limit.count = 0;
     limit.resetTime = now + 3600000;
   }
   
-  if (limit.count >= 5) { // Max 5 requests per hour
-    return { allowed: false, retryAfter: Math.ceil((limit.resetTime - now) / 1000) };
+  // Max 5 OTP requests per hour
+  if (limit.count >= 5) {
+    return { 
+      allowed: false, 
+      retryAfter: Math.ceil((limit.resetTime - now) / 1000),
+      message: 'Too many OTP requests. Please try again later.'
+    };
   }
   
   limit.count++;
@@ -146,38 +219,46 @@ function checkRateLimit(email, type = 'otp_request') {
   return { allowed: true };
 }
 
-// POST /api/auth/request-otp
+// 1. Request OTP
 router.post('/request-otp', async (req, res) => {
   const { email } = req.body;
 
   try {
-    // Validate email format
+    // Validate email
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
-      return res.status(400).json({ message: 'Invalid email format' });
+      return res.status(400).json({ 
+        success: false,
+        message: 'Please enter a valid email address.' 
+      });
     }
 
     // Check rate limit
-    const rateLimit = checkRateLimit(email, 'otp_request');
+    const rateLimit = checkRateLimit(email);
     if (!rateLimit.allowed) {
       return res.status(429).json({ 
-        message: `Too many OTP requests. Please try again in ${rateLimit.retryAfter} seconds.` 
+        success: false,
+        message: rateLimit.message,
+        retryAfter: rateLimit.retryAfter
       });
     }
 
     // Check if email already registered
     const [existing] = await pool.query('SELECT * FROM users WHERE email = ?', [email]);
     if (existing.length > 0) {
-      return res.status(400).json({ message: 'Email already registered' });
+      return res.status(400).json({ 
+        success: false,
+        message: 'This email is already registered. Please log in instead.' 
+      });
     }
 
-    // Generate OTP
+    // Generate and store OTP
     const otp = generateOTP();
+    const expiresAt = Date.now() + 10 * 60 * 1000; // 10 minutes
     
-    // Store OTP with expiration (10 minutes)
     otpStore.set(email, {
       otp,
-      expiresAt: Date.now() + 10 * 60 * 1000,
+      expiresAt,
       attempts: 0,
       createdAt: Date.now(),
       verified: false
@@ -188,26 +269,36 @@ router.post('/request-otp', async (req, res) => {
 
     res.json({ 
       success: true, 
-      message: 'Verification code sent to your email.' 
+      message: 'Verification code sent to your email.',
+      expiresAt: expiresAt
     });
 
-  } catch (err) {
-    console.error('OTP request error:', err);
+  } catch (error) {
+    console.error('OTP request error:', error);
     
     // Handle specific email errors
-    if (err.code === 'EAUTH') {
+    if (error.code === 'EAUTH') {
       return res.status(500).json({ 
-        message: 'Email configuration error. Please contact support.' 
+        success: false,
+        message: 'Email service configuration error. Please contact support.' 
+      });
+    }
+    
+    if (error.code === 'EENVELOPE') {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Invalid email address. Please check and try again.' 
       });
     }
     
     res.status(500).json({ 
-      message: 'Failed to send verification email. Please try again.' 
+      success: false,
+      message: 'Failed to send verification email. Please try again in a few minutes.' 
     });
   }
 });
 
-// POST /api/auth/verify-otp
+// 2. Verify OTP
 router.post('/verify-otp', async (req, res) => {
   const { email, otp } = req.body;
 
@@ -217,11 +308,11 @@ router.post('/verify-otp', async (req, res) => {
     if (!storedData) {
       return res.status(400).json({ 
         success: false,
-        message: 'Verification code expired or not found. Please request a new one.' 
+        message: 'No verification code found. Please request a new one.' 
       });
     }
 
-    // Check if OTP expired
+    // Check expiration
     if (Date.now() > storedData.expiresAt) {
       otpStore.delete(email);
       return res.status(400).json({ 
@@ -230,7 +321,7 @@ router.post('/verify-otp', async (req, res) => {
       });
     }
 
-    // Check max attempts (3)
+    // Check attempts (max 3)
     if (storedData.attempts >= 3) {
       otpStore.delete(email);
       return res.status(400).json({ 
@@ -239,8 +330,9 @@ router.post('/verify-otp', async (req, res) => {
       });
     }
 
+    // Verify OTP
     if (storedData.otp !== otp) {
-      storedData.attempts++;
+      storedData.attempts += 1;
       otpStore.set(email, storedData);
       
       return res.status(400).json({ 
@@ -260,8 +352,8 @@ router.post('/verify-otp', async (req, res) => {
       expiresAt: storedData.expiresAt
     });
 
-  } catch (err) {
-    console.error('OTP verification error:', err);
+  } catch (error) {
+    console.error('OTP verification error:', error);
     res.status(500).json({ 
       success: false,
       message: 'Verification failed. Please try again.' 
@@ -269,7 +361,7 @@ router.post('/verify-otp', async (req, res) => {
   }
 });
 
-// POST /api/auth/signup (requires verified email)
+// 3. Complete signup
 router.post('/signup', async (req, res) => {
   const { email, password, otp } = req.body;
 
@@ -284,7 +376,7 @@ router.post('/signup', async (req, res) => {
       });
     }
 
-    // Double-check OTP on signup
+    // Verify OTP again for security
     if (storedData.otp !== otp) {
       return res.status(400).json({ 
         success: false,
@@ -319,10 +411,10 @@ router.post('/signup', async (req, res) => {
       [email, hashedPassword, 'user', true]
     );
 
-    // Clear OTP
+    // Clear OTP from storage
     otpStore.delete(email);
 
-    // Generate JWT for immediate login
+    // Generate JWT token
     const token = jwt.sign(
       {
         user_id: result.insertId,
@@ -330,7 +422,7 @@ router.post('/signup', async (req, res) => {
         role: 'user',
       },
       process.env.JWT_SECRET,
-      { expiresIn: '24h' }
+      { expiresIn: '7d' }
     );
 
     res.status(201).json({ 
@@ -340,14 +432,15 @@ router.post('/signup', async (req, res) => {
       user: {
         id: result.insertId,
         email,
-        role: 'user'
+        role: 'user',
+        email_verified: true
       }
     });
 
-  } catch (err) {
-    console.error('Signup error:', err);
+  } catch (error) {
+    console.error('Signup error:', error);
     
-    if (err.code === 'ER_DUP_ENTRY') {
+    if (error.code === 'ER_DUP_ENTRY') {
       return res.status(400).json({ 
         success: false,
         message: 'User already exists.' 
@@ -361,7 +454,54 @@ router.post('/signup', async (req, res) => {
   }
 });
 
-// Keep your existing login endpoint
+// 4. Resend OTP
+router.post('/resend-otp', async (req, res) => {
+  const { email } = req.body;
+
+  try {
+    // Check if OTP already exists and is not expired
+    const storedData = otpStore.get(email);
+    const now = Date.now();
+    
+    if (storedData && storedData.expiresAt > now && (now - storedData.createdAt) < 30000) {
+      // If last OTP was sent less than 30 seconds ago, prevent resend
+      return res.status(429).json({
+        success: false,
+        message: 'Please wait 30 seconds before requesting a new code.'
+      });
+    }
+
+    // Generate new OTP
+    const otp = generateOTP();
+    const expiresAt = now + 10 * 60 * 1000;
+    
+    otpStore.set(email, {
+      otp,
+      expiresAt,
+      attempts: 0,
+      createdAt: now,
+      verified: false
+    });
+
+    // Send new OTP
+    await sendOTPEmail(email, otp);
+
+    res.json({
+      success: true,
+      message: 'New verification code sent.',
+      expiresAt: expiresAt
+    });
+
+  } catch (error) {
+    console.error('Resend OTP error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to resend verification code.'
+    });
+  }
+});
+
+// Keep existing login endpoint
 router.post('/login', async (req, res) => {
   const { email, password } = req.body;
 
@@ -399,7 +539,7 @@ router.post('/login', async (req, res) => {
         role: user.role,
       },
       process.env.JWT_SECRET,
-      { expiresIn: '24h' }
+      { expiresIn: '7d' }
     );
 
     res.json({ 
@@ -408,7 +548,8 @@ router.post('/login', async (req, res) => {
       user: {
         id: user.user_id,
         email: user.email,
-        role: user.role
+        role: user.role,
+        email_verified: user.email_verified
       }
     });
   } catch (err) {
@@ -416,6 +557,26 @@ router.post('/login', async (req, res) => {
     res.status(500).json({ 
       success: false,
       message: 'Login failed' 
+    });
+  }
+});
+
+// Test email endpoint
+router.get('/test-email', async (req, res) => {
+  const testEmail = process.env.TEST_EMAIL || 'your-test-email@gmail.com';
+  
+  try {
+    const result = await sendOTPEmail(testEmail, '123456');
+    res.json({ 
+      success: true, 
+      message: 'Test email sent successfully',
+      details: result 
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      message: 'Test email failed',
+      error: error.message 
     });
   }
 });
