@@ -752,48 +752,4 @@ router.post('/resend-reset-otp', async (req, res) => {
 });
 
 
-// Check if user has already rated a specific step
-router.get('/api/feedback/check', async (req, res) => {
-  const { user_id, service_id, step_number } = req.query;
-  
-  try {
-    const [rows] = await pool.query(
-      'SELECT * FROM feedback WHERE user_id = ? AND service_id = ? AND step_number = ?',
-      [user_id, service_id, step_number]
-    );
-    
-    if (rows.length > 0) {
-      res.json(rows[0]);
-    } else {
-      res.json(null);
-    }
-  } catch (error) {
-    console.error('Error checking feedback:', error);
-    res.status(500).json({ success: false, message: 'Error checking feedback' });
-  }
-});
-
-// Update existing feedback
-router.put('/api/feedback/:id', async (req, res) => {
-  const { id } = req.params;
-  const { rating, comment } = req.body;
-  
-  try {
-    await pool.query(
-      'UPDATE feedback SET rating = ?, comment = ?, updated_at = NOW() WHERE feedback_id = ?',
-      [rating, comment, id]
-    );
-    
-    res.json({ 
-      success: true, 
-      message: 'Feedback updated successfully',
-      updated: true 
-    });
-  } catch (error) {
-    console.error('Error updating feedback:', error);
-    res.status(500).json({ success: false, message: 'Error updating feedback' });
-  }
-});
-
-
 module.exports = router;
