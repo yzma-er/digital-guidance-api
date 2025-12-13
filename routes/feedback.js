@@ -1,4 +1,4 @@
-// src/routes/feedback.js - COMPLETE FIXED VERSION WITH USER EMAIL
+// src/routes/feedback.js - COMPLETE UPDATED VERSION
 const express = require("express");
 const router = express.Router();
 const pool = require("../db");
@@ -236,12 +236,35 @@ router.delete("/:id", async (req, res) => {
   }
 });
 
-// Step ratings per service (GET /api/feedback/step-ratings/:serviceName)
+// ✅ UPDATED: Step ratings per service WITH custom names (GET /api/feedback/step-ratings/:serviceName)
 router.get("/step-ratings/:serviceName", async (req, res) => {
   const serviceName = decodeURIComponent(req.params.serviceName);
 
   try {
-    const [rows] = await pool.query(
+    // 1. First get the service to extract step custom names
+    const [serviceRows] = await pool.query(
+      'SELECT service_id, content FROM services WHERE name = ?',
+      [serviceName]
+    );
+
+    let stepCustomNames = {};
+    
+    if (serviceRows.length > 0) {
+      try {
+        const content = JSON.parse(serviceRows[0].content || "[]");
+        if (Array.isArray(content)) {
+          content.forEach((step, index) => {
+            const stepNumber = index + 1;
+            stepCustomNames[stepNumber] = step.customName || null;
+          });
+        }
+      } catch (e) {
+        console.error("Error parsing service content for service", serviceName, ":", e);
+      }
+    }
+
+    // 2. Get step ratings from feedback table
+    const [feedbackRows] = await pool.query(
       `SELECT step_number,
               ROUND(AVG(rating), 1) AS avg_rating,
               COUNT(*) AS count
@@ -252,7 +275,16 @@ router.get("/step-ratings/:serviceName", async (req, res) => {
       [serviceName]
     );
 
-    res.json(rows);
+    // 3. Combine custom names with ratings
+    const combinedResults = feedbackRows.map(row => ({
+      ...row,
+      custom_name: stepCustomNames[row.step_number] || null
+    }));
+
+    // Debug log
+    console.log(`Step ratings for ${serviceName}:`, combinedResults);
+
+    res.json(combinedResults);
   } catch (err) {
     console.error("Error fetching step ratings:", err);
     res.status(500).json({ 
