@@ -8,21 +8,26 @@ const nodemailer = require('nodemailer');
 
 const router = express.Router();
 
-// Replace Brevo transporter with Gmail
+// Gmail Transporter
 const transporter = nodemailer.createTransport({
-  service: 'Gmail',  // Simple!
+  service: 'Gmail',
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASS
+  },
+  // Optional: Add TLS settings for better compatibility
+  tls: {
+    rejectUnauthorized: false
   }
 });
 
 // Test connection on startup
 transporter.verify((error, success) => {
   if (error) {
-    console.error('❌ Email server connection failed:', error.message);
+    console.error('❌ Gmail connection failed:', error.message);
+    console.log('💡 Check: 1) 2FA enabled 2) Correct App Password 3) .env variables');
   } else {
-    console.log('✅ Email server is ready to send messages');
+    console.log('✅ Gmail is ready to send messages');
   }
 });
 
@@ -34,10 +39,10 @@ function generateOTP() {
   return crypto.randomInt(100000, 999999).toString();
 }
 
-// Send OTP email via Brevo
+// Send OTP email via Gmail
 async function sendOTPEmail(email, otp) {
   const mailOptions = {
-    from: process.env.EMAIL_FROM || '"Digital Guidance" <verify@digitalguidance.com>',
+    from: process.env.EMAIL_FROM || `"Digital Guidance" <${process.env.EMAIL_USER}>`,
     to: email,
     subject: 'Verify Your Email - Digital Guidance',
     html: `
@@ -113,15 +118,6 @@ async function sendOTPEmail(email, otp) {
             color: #6b7280;
             font-size: 13px;
           }
-          .button {
-            display: inline-block;
-            background: #2563eb;
-            color: white;
-            padding: 12px 30px;
-            text-decoration: none;
-            border-radius: 6px;
-            margin: 20px 0;
-          }
         </style>
       </head>
       <body>
@@ -186,6 +182,15 @@ Need help? Contact our support team.
     return { success: true, messageId: info.messageId };
   } catch (error) {
     console.error(`❌ Failed to send OTP email to ${email}:`, error.message);
+    
+    // Add helpful error messages for Gmail
+    if (error.code === 'EAUTH') {
+      console.log('🔑 Gmail authentication failed. Please check:');
+      console.log('1. Is 2-Factor Authentication enabled on your Google account?');
+      console.log('2. Did you use the correct 16-digit App Password (not your regular password)?');
+      console.log('3. Generate new App Password at: https://myaccount.google.com/apppasswords');
+    }
+    
     throw error;
   }
 }
@@ -274,11 +279,11 @@ router.post('/request-otp', async (req, res) => {
   } catch (error) {
     console.error('OTP request error:', error);
     
-    // Handle specific email errors
+    // Handle specific Gmail errors
     if (error.code === 'EAUTH') {
       return res.status(500).json({ 
         success: false,
-        message: 'Email service configuration error. Please contact support.' 
+        message: 'Gmail authentication failed. Please check your email configuration.' 
       });
     }
     
@@ -559,22 +564,77 @@ router.post('/login', async (req, res) => {
   }
 });
 
-// Test email endpoint
-router.get('/test-email', async (req, res) => {
-  const testEmail = process.env.TEST_EMAIL || 'your-test-email@gmail.com';
+// Test Gmail endpoint
+router.get('/test-gmail', async (req, res) => {
+  const testEmail = process.env.TEST_EMAIL || process.env.EMAIL_USER;
   
   try {
-    const result = await sendOTPEmail(testEmail, '123456');
+    // Test transporter connection
+    await transporter.verify();
+    
+    // Send test email
+    const info = await transporter.sendMail({
+      from: process.env.EMAIL_FROM,
+      to: testEmail,
+      subject: '✅ Gmail Test - Digital Guidance',
+      text: 'This is a test email from your Digital Guidance app. Gmail is configured correctly!',
+      html: `
+        <div style="font-family: Arial, sans-serif; padding: 20px;">
+          <h2 style="color: #10b981;">✅ Gmail Test Successful!</h2>
+          <p>Your Digital Guidance app can send emails via Gmail.</p>
+          <p><strong>Time:</strong> ${new Date().toLocaleString()}</p>
+          <p>If you receive this, your OTP system will work!</p>
+        </div>
+      `
+    });
+    
     res.json({ 
       success: true, 
       message: 'Test email sent successfully',
-      details: result 
+      messageId: info.messageId,
+      to: testEmail
     });
   } catch (error) {
+    console.error('Gmail test failed:', error.message);
     res.status(500).json({ 
       success: false, 
-      message: 'Test email failed',
-      error: error.message 
+      message: 'Gmail test failed',
+      error: error.message,
+      code: error.code,
+      suggestion: 'Check 1) 2FA enabled 2) App Password correct 3) .env variables set'
+    });
+  }
+});
+
+// Health check endpoint
+router.get('/health', async (req, res) => {
+  try {
+    // Check database
+    await pool.query('SELECT 1');
+    
+    // Check email (but don't fail if email has issues)
+    let emailStatus = 'unknown';
+    try {
+      await transporter.verify();
+      emailStatus = 'connected';
+    } catch (e) {
+      emailStatus = 'disconnected: ' + e.message;
+    }
+    
+    res.json({
+      status: 'healthy',
+      timestamp: new Date().toISOString(),
+      services: {
+        database: 'connected',
+        email: emailStatus,
+        otp_store: 'running',
+        rate_limiting: 'active'
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: 'unhealthy',
+      error: error.message
     });
   }
 });
