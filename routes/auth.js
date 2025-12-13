@@ -1,105 +1,459 @@
-/// routes/auth.js - RESEND VERSION (SUPER SIMPLE)
+// routes/auth.js - COMPLETE UPDATED VERSION
 const express = require('express');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const pool = require('../db');
 const crypto = require('crypto');
-const { Resend } = require('resend'); // Only dependency
+const nodemailer = require('nodemailer');
 
 const router = express.Router();
 
-// Resend setup (1 LINE!)
-const resend = new Resend(process.env.RESEND_API_KEY);
-
-console.log('📧 Email: Using Resend (API-based, works on Render)');
-
-// OTP storage
+// OTP storage (use Redis in production)
 const otpStore = new Map();
+const rateLimits = new Map();
 
+// Generate 6-digit OTP
 function generateOTP() {
   return crypto.randomInt(100000, 999999).toString();
 }
 
-// SIMPLE EMAIL FUNCTION - Just 15 lines!
-async function sendOTPEmail(email, otp) {
-  console.log(`📧 Sending OTP to ${email} via Resend`);
+// Rate limiting
+function checkRateLimit(email, type = 'otp') {
+  const now = Date.now();
+  const key = `${email}:${type}`;
+  const limit = rateLimits.get(key) || { count: 0, resetTime: now + 3600000 };
   
-  try {
-    const { data, error } = await resend.emails.send({
-      from: process.env.EMAIL_FROM || 'Digital Guidance <onboarding@resend.dev>',
-      to: [email],
-      subject: 'Verify Your Email - Digital Guidance',
-      html: `
-        <div style="font-family: Arial, sans-serif; padding: 20px;">
-          <h2 style="color: #2563eb;">Verify Your Email</h2>
-          <p>Your verification code is:</p>
-          <div style="font-size: 32px; font-weight: bold; letter-spacing: 10px; color: #1d4ed8; margin: 20px 0;">
-            ${otp}
-          </div>
-          <p>This code expires in 10 minutes.</p>
-          <p>If you didn't request this, please ignore this email.</p>
-        </div>
-      `,
-      text: `Your verification code: ${otp}\n\nExpires in 10 minutes.`
-    });
-
-    if (error) {
-      console.log('❌ Resend failed, using logging:', error.message);
-      throw error;
-    }
-
-    console.log('✅ Email sent via Resend:', data.id);
-    return { success: true, method: 'resend', messageId: data.id };
-    
-  } catch (error) {
-    // Fallback to logging
-    console.log('='.repeat(50));
-    console.log(`🎯 OTP for ${email}: ${otp}`);
-    console.log('='.repeat(50));
-    
+  if (now > limit.resetTime) {
+    limit.count = 0;
+    limit.resetTime = now + 3600000;
+  }
+  
+  // Max 5 OTP requests per hour
+  if (limit.count >= 5) {
     return { 
-      success: true, 
-      method: 'logging', 
-      otp: otp 
+      allowed: false, 
+      retryAfter: Math.ceil((limit.resetTime - now) / 1000),
+      message: 'Too many OTP requests. Please try again later.'
     };
   }
+  
+  limit.count++;
+  rateLimits.set(key, limit);
+  return { allowed: true };
 }
 
-// EVERYTHING ELSE STAYS EXACTLY THE SAME!
-// Your existing request-otp, verify-otp, signup, login, etc.
-// NO CHANGES NEEDED!
+// 1. Store OTP (for EmailJS frontend)
+router.post('/store-otp', async (req, res) => {
+  const { email, otp } = req.body;
 
-// Test Resend endpoint
-router.get('/test-resend', async (req, res) => {
-  const testEmail = process.env.TEST_EMAIL || 'your-email@gmail.com';
-  
   try {
-    const { data, error } = await resend.emails.send({
-      from: process.env.EMAIL_FROM,
-      to: [testEmail],
-      subject: '✅ Resend Test - SUCCESS',
-      text: 'Resend is working perfectly with your Digital Guidance app!'
+    // Validate email
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Please enter a valid email address.' 
+      });
+    }
+
+    // Check rate limit
+    const rateLimit = checkRateLimit(email);
+    if (!rateLimit.allowed) {
+      return res.status(429).json({ 
+        success: false,
+        message: rateLimit.message,
+        retryAfter: rateLimit.retryAfter
+      });
+    }
+
+    // Check if email already registered
+    const [existing] = await pool.query('SELECT * FROM users WHERE email = ?', [email]);
+    if (existing.length > 0) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'This email is already registered. Please log in instead.' 
+      });
+    }
+
+    // Store OTP
+    const expiresAt = Date.now() + 10 * 60 * 1000; // 10 minutes
+    
+    otpStore.set(email, {
+      otp,
+      expiresAt,
+      attempts: 0,
+      createdAt: Date.now(),
+      verified: false
     });
 
-    if (error) {
-      throw error;
+    console.log(`📦 OTP stored for ${email}: ${otp}`);
+    
+    res.json({ 
+      success: true, 
+      message: 'OTP stored successfully',
+      expiresAt: expiresAt,
+      otp: otp, // Return OTP for frontend fallback display
+      note: 'Frontend will attempt to send email via EmailJS'
+    });
+
+  } catch (error) {
+    console.error('Store OTP error:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Failed to process OTP request.'
+    });
+  }
+});
+
+// 2. Verify OTP
+router.post('/verify-otp', async (req, res) => {
+  const { email, otp } = req.body;
+
+  try {
+    const storedData = otpStore.get(email);
+
+    if (!storedData) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'No verification code found. Please request a new one.' 
+      });
     }
+
+    // Check expiration
+    if (Date.now() > storedData.expiresAt) {
+      otpStore.delete(email);
+      return res.status(400).json({ 
+        success: false,
+        message: 'Verification code has expired. Please request a new one.' 
+      });
+    }
+
+    // Check attempts (max 3)
+    if (storedData.attempts >= 3) {
+      otpStore.delete(email);
+      return res.status(400).json({ 
+        success: false,
+        message: 'Too many failed attempts. Please request a new verification code.' 
+      });
+    }
+
+    // Verify OTP
+    if (storedData.otp !== otp) {
+      storedData.attempts += 1;
+      otpStore.set(email, storedData);
+      
+      return res.status(400).json({ 
+        success: false,
+        message: 'Invalid verification code.',
+        attemptsLeft: 3 - storedData.attempts
+      });
+    }
+
+    // Mark as verified
+    storedData.verified = true;
+    otpStore.set(email, storedData);
+
+    res.json({ 
+      success: true, 
+      message: 'Email verified successfully!',
+      expiresAt: storedData.expiresAt
+    });
+
+  } catch (error) {
+    console.error('OTP verification error:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Verification failed. Please try again.' 
+    });
+  }
+});
+
+// 3. Complete signup
+router.post('/signup', async (req, res) => {
+  const { email, password, otp } = req.body;
+
+  try {
+    // Check if email is verified
+    const storedData = otpStore.get(email);
+    
+    if (!storedData || !storedData.verified) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Email not verified. Please verify your email first.' 
+      });
+    }
+
+    // Verify OTP again for security
+    if (storedData.otp !== otp) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Verification code mismatch. Please restart the signup process.' 
+      });
+    }
+
+    // Check if user already exists
+    const [existing] = await pool.query('SELECT * FROM users WHERE email = ?', [email]);
+    if (existing.length > 0) {
+      otpStore.delete(email);
+      return res.status(400).json({ 
+        success: false,
+        message: 'User already exists. Please log in instead.' 
+      });
+    }
+
+    // Validate password
+    if (!password || password.length < 8) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Password must be at least 8 characters long.' 
+      });
+    }
+
+    // Hash password
+    const hashedPassword = await bcrypt.hash(password, 12);
+
+    // Create user
+    const [result] = await pool.query(
+      'INSERT INTO users (email, password, role, email_verified) VALUES (?, ?, ?, ?)',
+      [email, hashedPassword, 'user', true]
+    );
+
+    // Clear OTP from storage
+    otpStore.delete(email);
+
+    // Generate JWT token
+    const token = jwt.sign(
+      {
+        user_id: result.insertId,
+        email: email,
+        role: 'user',
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+
+    res.status(201).json({ 
+      success: true,
+      message: 'Account created successfully!',
+      token,
+      user: {
+        id: result.insertId,
+        email,
+        role: 'user',
+        email_verified: true
+      }
+    });
+
+  } catch (error) {
+    console.error('Signup error:', error);
+    
+    if (error.code === 'ER_DUP_ENTRY') {
+      return res.status(400).json({ 
+        success: false,
+        message: 'User already exists.' 
+      });
+    }
+    
+    res.status(500).json({ 
+      success: false,
+      message: 'Server error during signup. Please try again.' 
+    });
+  }
+});
+
+// 4. Resend OTP
+router.post('/resend-otp', async (req, res) => {
+  const { email } = req.body;
+
+  try {
+    // Check if OTP already exists and is not expired
+    const storedData = otpStore.get(email);
+    const now = Date.now();
+    
+    if (storedData && storedData.expiresAt > now && (now - storedData.createdAt) < 30000) {
+      // If last OTP was sent less than 30 seconds ago, prevent resend
+      return res.status(429).json({
+        success: false,
+        message: 'Please wait 30 seconds before requesting a new code.'
+      });
+    }
+
+    // Generate new OTP
+    const otp = generateOTP();
+    const expiresAt = now + 10 * 60 * 1000;
+    
+    otpStore.set(email, {
+      otp,
+      expiresAt,
+      attempts: 0,
+      createdAt: now,
+      verified: false
+    });
+
+    console.log(`🔄 New OTP for ${email}: ${otp}`);
 
     res.json({
       success: true,
-      message: 'Resend test email sent',
-      emailId: data.id,
-      note: 'Check your email inbox'
+      message: 'New verification code ready.',
+      expiresAt: expiresAt,
+      otp: otp // Return for frontend fallback
     });
-    
+
   } catch (error) {
-    res.json({
+    console.error('Resend OTP error:', error);
+    res.status(500).json({
       success: false,
-      message: 'Resend test failed',
-      error: error.message,
-      using_logging: true
+      message: 'Failed to generate new verification code.'
     });
   }
+});
+
+// Keep existing login endpoint
+router.post('/login', async (req, res) => {
+  const { email, password } = req.body;
+
+  try {
+    const [rows] = await pool.query('SELECT * FROM users WHERE email = ?', [email]);
+    const user = rows[0];
+
+    if (!user) {
+      return res.status(401).json({ 
+        success: false,
+        message: 'Invalid email or password' 
+      });
+    }
+
+    // Optional: Check if email is verified
+    if (!user.email_verified) {
+      return res.status(403).json({ 
+        success: false,
+        message: 'Please verify your email before logging in.' 
+      });
+    }
+
+    const passwordMatch = await bcrypt.compare(password, user.password);
+    if (!passwordMatch) {
+      return res.status(401).json({ 
+        success: false,
+        message: 'Invalid email or password' 
+      });
+    }
+
+    const token = jwt.sign(
+      {
+        user_id: user.user_id,
+        email: user.email,
+        role: user.role,
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+
+    res.json({ 
+      success: true,
+      token,
+      user: {
+        id: user.user_id,
+        email: user.email,
+        role: user.role,
+        email_verified: user.email_verified
+      }
+    });
+  } catch (err) {
+    console.error('Login error:', err);
+    res.status(500).json({ 
+      success: false,
+      message: 'Login failed' 
+    });
+  }
+});
+
+// Test endpoint - OTP logging mode
+router.get('/test-otp-system', (req, res) => {
+  const testEmail = 'test@example.com';
+  const otp = generateOTP();
+  const expiresAt = Date.now() + 10 * 60 * 1000;
+  
+  otpStore.set(testEmail, {
+    otp,
+    expiresAt,
+    attempts: 0,
+    createdAt: Date.now(),
+    verified: false
+  });
+  
+  res.json({
+    success: true,
+    message: 'OTP system test',
+    email: testEmail,
+    otp: otp,
+    expiresAt: expiresAt,
+    mode: 'logging',
+    note: 'EmailJS handles real email sending from frontend'
+  });
+});
+
+// Health check endpoint
+router.get('/health', async (req, res) => {
+  try {
+    // Check database
+    await pool.query('SELECT 1');
+    
+    res.json({
+      status: 'healthy',
+      timestamp: new Date().toISOString(),
+      services: {
+        database: 'connected',
+        email: 'emailjs_frontend',
+        otp_store: 'running',
+        rate_limiting: 'active',
+        otp_count: otpStore.size
+      },
+      note: 'Email sending via EmailJS (frontend) with OTP logging fallback'
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: 'unhealthy',
+      error: error.message
+    });
+  }
+});
+
+// View OTPs (for debugging/admin)
+router.get('/admin/otps', (req, res) => {
+  const otps = Array.from(otpStore.entries()).map(([email, data]) => ({
+    email,
+    otp: data.otp,
+    expires: new Date(data.expiresAt).toLocaleTimeString(),
+    verified: data.verified,
+    attempts: data.attempts,
+    createdAt: new Date(data.createdAt).toLocaleTimeString()
+  }));
+  
+  res.json({
+    count: otpStore.size,
+    otps: otps,
+    note: 'Active OTPs in memory'
+  });
+});
+
+// Clean expired OTPs (optional cleanup endpoint)
+router.post('/cleanup-otps', (req, res) => {
+  const now = Date.now();
+  let cleaned = 0;
+  
+  for (const [email, data] of otpStore.entries()) {
+    if (now > data.expiresAt) {
+      otpStore.delete(email);
+      cleaned++;
+    }
+  }
+  
+  res.json({
+    success: true,
+    message: `Cleaned ${cleaned} expired OTPs`,
+    remaining: otpStore.size
+  });
 });
 
 module.exports = router;
