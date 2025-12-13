@@ -10,15 +10,17 @@ const router = express.Router();
 
 // Gmail Transporter
 const transporter = nodemailer.createTransport({
-  service: 'Gmail',
+  host: 'smtp.gmail.com',
+  port: 465,  // Changed from 587 to 465
+  secure: true,  // true for port 465
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASS
   },
-  // Optional: Add TLS settings for better compatibility
-  tls: {
-    rejectUnauthorized: false
-  }
+  // Add connection timeout
+  connectionTimeout: 10000,
+  greetingTimeout: 10000,
+  socketTimeout: 20000
 });
 
 // Test connection on startup
