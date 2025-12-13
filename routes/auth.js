@@ -1,4 +1,4 @@
-// routes/auth.js - EMAILJS ONLY VERSION (No OTP logging)
+// routes/auth.js - COMPLETE UPDATED VERSION WITH SINGLE OTP SOURCE
 const express = require('express');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
@@ -41,9 +41,9 @@ function checkRateLimit(email, type = 'otp') {
   return { allowed: true };
 }
 
-// 1. Store OTP (for EmailJS frontend)
-router.post('/store-otp', async (req, res) => {
-  const { email, otp } = req.body;
+// 1. Generate OTP (NEW - for frontend EmailJS)
+router.post('/generate-otp', async (req, res) => {
+  const { email } = req.body;
 
   try {
     // Validate email
@@ -74,7 +74,8 @@ router.post('/store-otp', async (req, res) => {
       });
     }
 
-    // Store OTP
+    // Generate OTP
+    const otp = generateOTP();
     const expiresAt = Date.now() + 10 * 60 * 1000; // 10 minutes
     
     otpStore.set(email, {
@@ -85,19 +86,20 @@ router.post('/store-otp', async (req, res) => {
       verified: false
     });
 
-    console.log(`📦 OTP stored for ${email}`);
+    console.log(`📦 OTP generated for ${email}: ${otp}`);
     
     res.json({ 
       success: true, 
-      message: 'Verification code sent to your email',
+      message: 'OTP generated successfully',
+      otp: otp, // Send OTP to frontend for email sending
       expiresAt: expiresAt
     });
 
   } catch (error) {
-    console.error('Store OTP error:', error);
+    console.error('Generate OTP error:', error);
     res.status(500).json({ 
       success: false,
-      message: 'Failed to process OTP request.'
+      message: 'Failed to generate OTP.'
     });
   }
 });
@@ -287,12 +289,13 @@ router.post('/resend-otp', async (req, res) => {
       verified: false
     });
 
-    console.log(`🔄 New OTP generated for ${email}`);
+    console.log(`🔄 New OTP generated for ${email}: ${otp}`);
 
     res.json({
       success: true,
-      message: 'New verification code sent to your email.',
-      expiresAt: expiresAt
+      message: 'New verification code ready.',
+      expiresAt: expiresAt,
+      otp: otp // Return OTP for frontend email sending
     });
 
   } catch (error) {
@@ -382,9 +385,9 @@ router.get('/test-otp-system', (req, res) => {
     success: true,
     message: 'OTP system test',
     email: testEmail,
+    otp: otp,
     expiresAt: expiresAt,
-    mode: 'emailjs_only',
-    note: 'Email sending via EmailJS only (no OTP logging)'
+    mode: 'single_source_backend'
   });
 });
 
@@ -399,12 +402,12 @@ router.get('/health', async (req, res) => {
       timestamp: new Date().toISOString(),
       services: {
         database: 'connected',
-        email: 'emailjs_only',
+        email: 'emailjs_frontend_with_backend_otp',
         otp_store: 'running',
         rate_limiting: 'active',
         otp_count: otpStore.size
       },
-      note: 'Email sending via EmailJS only (professional mode)'
+      note: 'Backend generates OTP → Frontend sends via EmailJS'
     });
   } catch (error) {
     res.status(500).json({
@@ -418,6 +421,7 @@ router.get('/health', async (req, res) => {
 router.get('/admin/otps', (req, res) => {
   const otps = Array.from(otpStore.entries()).map(([email, data]) => ({
     email,
+    otp: data.otp, // Keep OTP visible for debugging admin panel
     expires: new Date(data.expiresAt).toLocaleTimeString(),
     verified: data.verified,
     attempts: data.attempts,
@@ -427,7 +431,7 @@ router.get('/admin/otps', (req, res) => {
   res.json({
     count: otpStore.size,
     otps: otps,
-    note: 'Active OTPs in memory (OTP values hidden for security)'
+    note: 'Active OTPs in memory (admin view)'
   });
 });
 
