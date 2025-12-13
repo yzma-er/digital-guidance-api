@@ -1,4 +1,4 @@
-// routes/auth.js - RESEND VERSION (SUPER SIMPLE)
+/// routes/auth.js - RESEND VERSION (SUPER SIMPLE)
 const express = require('express');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
