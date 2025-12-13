@@ -1,4 +1,4 @@
-// src/routes/feedback.js
+// src/routes/feedback.js - FIXED VERSION
 const express = require("express");
 const router = express.Router();
 const pool = require("../db");
@@ -72,13 +72,6 @@ router.post("/", async (req, res) => {
       }
     }
 
-    // Get user email from users table
-    let user_email = null;
-    const [userRows] = await pool.query('SELECT email FROM users WHERE user_id = ?', [user_id]);
-    if (userRows.length > 0) {
-      user_email = userRows[0].email;
-    }
-
     // Check if feedback already exists for this user, service, and step
     const [existing] = await pool.query(
       'SELECT * FROM feedback WHERE user_id = ? AND service_id = ? AND step_number = ?',
@@ -89,23 +82,23 @@ router.post("/", async (req, res) => {
     let isUpdate = false;
 
     if (existing.length > 0) {
-      // Update existing feedback
+      // ✅ FIXED: Removed user_email from UPDATE
       await pool.query(
         `UPDATE feedback 
-         SET rating = ?, comment = ?, user_email = ?, updated_at = NOW() 
+         SET rating = ?, comment = ? 
          WHERE feedback_id = ?`,
-        [rating, comment || null, user_email, existing[0].feedback_id]
+        [rating, comment || null, existing[0].feedback_id]
       );
       
       result = { feedback_id: existing[0].feedback_id };
       isUpdate = true;
     } else {
-      // Create new feedback
+      // ✅ FIXED: Removed user_email from INSERT
       const [insertResult] = await pool.query(
         `INSERT INTO feedback 
-         (service_id, service_name, step_number, rating, comment, user_id, user_email, created_at) 
-         VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
-        [service_id, finalServiceName, step_number || 0, rating, comment || null, user_id, user_email]
+         (service_id, service_name, step_number, rating, comment, user_id, created_at) 
+         VALUES (?, ?, ?, ?, ?, ?, NOW())`,
+        [service_id, finalServiceName, step_number || 0, rating, comment || null, user_id]
       );
       
       result = { feedback_id: insertResult.insertId };
@@ -140,9 +133,10 @@ router.put("/:id", async (req, res) => {
   }
   
   try {
+    // ✅ FIXED: Removed user_email from UPDATE
     await pool.query(
       `UPDATE feedback 
-       SET rating = ?, comment = ?, updated_at = NOW() 
+       SET rating = ?, comment = ? 
        WHERE feedback_id = ?`,
       [rating, comment || null, id]
     );
@@ -168,7 +162,7 @@ router.get("/service/:serviceId", async (req, res) => {
   try {
     const [rows] = await pool.query(
       `SELECT feedback_id, service_id, service_name, step_number, rating, comment, 
-              user_id, user_email, created_at, updated_at
+              user_id, created_at
        FROM feedback 
        WHERE service_id = ? 
        ORDER BY step_number ASC, created_at DESC`,
@@ -190,7 +184,7 @@ router.get("/", async (req, res) => {
   try {
     const [rows] = await pool.query(
       `SELECT feedback_id, service_id, service_name, step_number, rating, comment, 
-              user_id, user_email, created_at, updated_at 
+              user_id, created_at 
        FROM feedback 
        ORDER BY created_at DESC`
     );
