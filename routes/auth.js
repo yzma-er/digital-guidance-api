@@ -1,10 +1,9 @@
-// routes/auth.js - COMPLETE UPDATED VERSION
+// routes/auth.js - COMPLETE UPDATED VERSION WITH EMAILJS INTEGRATION
 const express = require('express');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const pool = require('../db');
 const crypto = require('crypto');
-const nodemailer = require('nodemailer');
 
 const router = express.Router();
 
