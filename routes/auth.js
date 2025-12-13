@@ -307,7 +307,7 @@ router.post('/resend-otp', async (req, res) => {
   }
 });
 
-// Keep existing login endpoint
+// Updated /login endpoint - Skip OTP for admins
 router.post('/login', async (req, res) => {
   const { email, password } = req.body;
 
@@ -322,8 +322,13 @@ router.post('/login', async (req, res) => {
       });
     }
 
-    // Optional: Check if email is verified
-    if (!user.email_verified) {
+    // ADMIN BYPASS: Skip email verification check for admins
+    if (user.role === 'admin') {
+      console.log(`🔐 Admin login attempt: ${email}`);
+      // Allow admin login without email verification
+    } 
+    // Regular users still need email verification
+    else if (!user.email_verified) {
       return res.status(403).json({ 
         success: false,
         message: 'Please verify your email before logging in.' 
@@ -348,6 +353,8 @@ router.post('/login', async (req, res) => {
       { expiresIn: '7d' }
     );
 
+    console.log(`✅ Login successful: ${email} (Role: ${user.role})`);
+    
     res.json({ 
       success: true,
       token,
