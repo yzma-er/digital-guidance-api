@@ -298,12 +298,10 @@ router.get("/step-ratings/:serviceName", async (req, res) => {
 router.get("/recent-comments", async (req, res) => {
   try {
     const [rows] = await pool.query(
-      `SELECT f.feedback_id, f.service_name, f.comment, f.rating, f.created_at, 
-              f.user_email, u.first_name, u.last_name
-       FROM feedback f
-       LEFT JOIN users u ON f.user_id = u.user_id
-       WHERE f.comment IS NOT NULL AND TRIM(f.comment) != ''
-       ORDER BY f.created_at DESC
+      `SELECT feedback_id, service_name, comment, rating, created_at, user_email
+       FROM feedback 
+       WHERE comment IS NOT NULL AND TRIM(comment) != ''
+       ORDER BY created_at DESC
        LIMIT 5`
     );
     
@@ -316,5 +314,4 @@ router.get("/recent-comments", async (req, res) => {
     });
   }
 });
-
 module.exports = router;
