@@ -163,36 +163,6 @@ router.put("/users/:id/role", async (req, res) => {
   }
 });
 
-// ✅ Change a user's password
-router.put("/users/:id/password", async (req, res) => {
-  const { id } = req.params;
-  const { newPassword } = req.body;
-
-  if (!id || !newPassword) {
-    return res.status(400).json({ message: "User ID and password are required" });
-  }
-
-  if (newPassword.length < 6) {
-    return res.status(400).json({ message: "Password must be at least 6 characters long" });
-  }
-
-  try {
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
-    const [result] = await pool.query(
-      "UPDATE users SET password = ? WHERE user_id = ?", 
-      [hashedPassword, id]
-    );
-    
-    if (result.affectedRows === 0) {
-      return res.status(404).json({ message: "User not found" });
-    }
-
-    res.json({ message: "Password updated successfully" });
-  } catch (err) {
-    console.error("❌ Error updating password:", err);
-    res.status(500).json({ message: "Database error" });
-  }
-});
 
 // ✅ CREATE ADMIN ACCOUNT
 router.post("/create-admin", async (req, res) => {
