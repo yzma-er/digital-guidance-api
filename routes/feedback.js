@@ -294,4 +294,27 @@ router.get("/step-ratings/:serviceName", async (req, res) => {
   }
 });
 
+// ✅ NEW: Get recent feedback comments (GET /api/feedback/recent-comments)
+router.get("/recent-comments", async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT f.feedback_id, f.service_name, f.comment, f.rating, f.created_at, 
+              f.user_email, u.first_name, u.last_name
+       FROM feedback f
+       LEFT JOIN users u ON f.user_id = u.user_id
+       WHERE f.comment IS NOT NULL AND TRIM(f.comment) != ''
+       ORDER BY f.created_at DESC
+       LIMIT 5`
+    );
+    
+    res.json(rows);
+  } catch (err) {
+    console.error("Error fetching recent comments:", err);
+    res.status(500).json({ 
+      success: false,
+      message: "Database error" 
+    });
+  }
+});
+
 module.exports = router;
