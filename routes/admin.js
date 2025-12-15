@@ -93,12 +93,24 @@ router.put("/services/:id", async (req, res) => {
    USERS MANAGEMENT
 ====================== */
 
-// ✅ GET all users
+// ✅ GET all users - UPDATED WITH DEBUGGING
 router.get("/users", async (req, res) => {
   try {
+    console.log("🔍 Fetching all users from database...");
+    
     const [rows] = await pool.query(
       "SELECT user_id, email, role, created_at FROM users ORDER BY created_at DESC"
     );
+    
+    console.log("📊 Database query result:", rows);
+    console.log("📊 Number of users found:", rows.length);
+    
+    // Check what fields are actually in the result
+    if (rows.length > 0) {
+      console.log("📊 First user object keys:", Object.keys(rows[0]));
+      console.log("📊 First user data:", rows[0]);
+    }
+    
     res.json(rows);
   } catch (err) {
     console.error("❌ Error fetching users:", err);
